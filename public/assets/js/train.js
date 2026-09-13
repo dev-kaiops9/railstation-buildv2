@@ -1,1130 +1,863 @@
 let trainData = [];
 let trackData = [];
 let jalurDilaluiData = [];
+let scheduleStations = [];
+let scheduleRows = [];
+let currentStationId = null;
+let scheduleEditMode = false;
+let selectedStationIds = [];
+let originalValidity = '';
 
-// --- Start of Train functions ---
+const escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 
-function loadTrains() {
-    const tableBody = document.getElementById("train-table-body");
-    if (tableBody) {
-        tableBody.innerHTML = `
-            <tr>
-                <td colspan="7" class="px-6 py-4">
-                    <div class="inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50 my-4">
-                        <div class="text-center">
-                            <i class="fas fa-spinner fa-spin text-3xl text-blue-500 mb-2"></i>
-                            <p class="text-gray-600">Memuat data...</p>
-                        </div>
-                    </div>
-                </td>
+const apiError = (xhr, fallback = 'Terjadi kesalahan.') => {
+    return xhr?.responseJSON?.message || xhr?.responseJSON?.error || fallback;
+};
+
+function ajaxError(xhr, fallback = 'Gagal memproses data.') {
+    console.error(xhr);
+    showMessage(apiError(xhr, fallback), 'error');
+}
+
+// =========================================================
+// TAB DATA PERKA
+// =========================================================
+function setPerkaTab(tab) {
+    const daftar = document.getElementById('daftar-waktu-view');
+    const jalur = document.getElementById('jalur-emplasemen-view');
+    const daftarBtn = document.getElementById('tab-daftar-waktu');
+    const jalurBtn = document.getElementById('tab-jalur-emplasemen');
+
+    const isDaftar = tab === 'daftar-waktu';
+    daftar?.classList.toggle('hidden', !isDaftar);
+    jalur?.classList.toggle('hidden', isDaftar);
+    daftarBtn?.classList.toggle('active', isDaftar);
+    jalurBtn?.classList.toggle('active', !isDaftar);
+}
+
+// =========================================================
+// DAFTAR WAKTU / SCHEDULE MATRIX
+// =========================================================
+function loadSchedules() {
+    const head = document.getElementById('schedule-table-head');
+    const body = document.getElementById('schedule-table-body');
+    if (!head || !body) return;
+
+    body.innerHTML = `<tr><td class="px-6 py-8 text-center" colspan="20"><i class="fas fa-spinner fa-spin text-2xl"></i><p class="mt-2 text-gray-500">Memuat daftar waktu...</p></td></tr>`;
+
+    $.ajax({
+        url: '/train/schedules',
+        type: 'GET',
+        success(response) {
+            trainData = response.trains || [];
+            scheduleRows = response.schedules || [];
+            scheduleStations = response.stations || [];
+            currentStationId = response.current_station_id || null;
+            prepareSelectedStations();
+            renderScheduleMatrix();
+            renderStationSelector();
+        },
+        error(xhr) {
+            ajaxError(xhr, 'Gagal memuat daftar waktu.');
+            body.innerHTML = `<tr><td colspan="20" class="px-6 py-8 text-center text-red-500">Gagal memuat daftar waktu.</td></tr>`;
+        }
+    });
+}
+
+function prepareSelectedStations() {
+    const key = `railstation.schedule.stations.${currentStationId}`;
+    let stored = [];
+    try {
+        stored = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch (_) { }
+
+    const scheduleIds = [...new Set(scheduleRows.map(s => Number(s.station_id)))];
+    const defaults = [...new Set([...(scheduleIds.length ? scheduleIds : []), Number(currentStationId)].filter(Boolean))];
+    const validIds = new Set(scheduleStations.map(s => Number(s.id)));
+
+    selectedStationIds = Array.isArray(stored) && stored.length
+        ? stored.map(Number).filter(id => validIds.has(id))
+        : defaults.filter(id => validIds.has(id));
+
+    if (!selectedStationIds.length && scheduleStations.length) {
+        selectedStationIds = [Number(scheduleStations[0].id)];
+    }
+}
+
+function saveSelectedStations() {
+    if (!currentStationId) return;
+    localStorage.setItem(
+        `railstation.schedule.stations.${currentStationId}`,
+        JSON.stringify(selectedStationIds.map(Number))
+    );
+}
+
+function getSelectedStations() {
+    const selected = new Set(selectedStationIds.map(Number));
+    return scheduleStations.filter(s => selected.has(Number(s.id)));
+}
+
+function scheduleMapForTrain(trainId) {
+    const map = {};
+    scheduleRows
+        .filter(s => Number(s.train_id) === Number(trainId))
+        .forEach(s => { map[Number(s.station_id)] = s; });
+    return map;
+}
+
+function formatCellTime(value) {
+    if (!value) return '';
+    return String(value).slice(0, 5);
+}
+
+function renderScheduleMatrix() {
+    const head = document.getElementById('schedule-table-head');
+    const body = document.getElementById('schedule-table-body');
+    if (!head || !body) return;
+
+    const stations = getSelectedStations();
+    const colCount = 3 + (stations.length * 2) + (scheduleEditMode ? 1 : 0);
+
+    head.innerHTML = `
+        <tr>
+            <th rowspan="2" class="schedule-fixed-col">Nomor KA</th>
+            <th rowspan="2" class="schedule-fixed-col">Nama KA</th>
+            <th rowspan="2" class="schedule-fixed-col">Relasi</th>
+            ${stations.map(station => `
+                <th colspan="2" class="schedule-station-head ${Number(station.id) === Number(currentStationId) ? 'current-station' : ''}">
+                    ${escapeHtml(String(station.name).toUpperCase())}
+                </th>
+            `).join('')}
+            ${scheduleEditMode ? '<th rowspan="2" class="schedule-fixed-col">Opsi</th>' : ''}
+        </tr>
+        <tr>
+            ${stations.map(() => '<th class="schedule-sub-head">Datang</th><th class="schedule-sub-head">Berangkat</th>').join('')}
+        </tr>
+    `;
+
+    if (!trainData.length) {
+        body.innerHTML = `<tr><td colspan="${colCount}" class="px-6 py-8 text-center text-gray-500">Belum ada data KA pada stasiun ini.</td></tr>`;
+        document.getElementById('schedule-empty-help')?.classList.remove('hidden');
+        return;
+    }
+
+    document.getElementById('schedule-empty-help')?.classList.add('hidden');
+
+    body.innerHTML = trainData.map(train => {
+        const schedules = scheduleMapForTrain(train.id);
+        return `
+            <tr data-train-id="${train.id}">
+                <td class="font-medium">${escapeHtml(train.number)}</td>
+                <td>${escapeHtml(train.name)}</td>
+                <td>${escapeHtml(train.route)}</td>
+                ${stations.map(station => renderScheduleCell(train, station, schedules[Number(station.id)] || null)).join('')}
+                ${scheduleEditMode ? `<td class="text-center"><button type="button" class="text-red-500 hover:text-red-700 font-semibold" onclick="clearTrainSchedules(${train.id})">Kosongkan</button></td>` : ''}
             </tr>
+        `;
+    }).join('');
+}
+
+function renderScheduleCell(train, station, schedule) {
+    const arrival = formatCellTime(schedule?.arrival_time);
+    const departure = formatCellTime(schedule?.departure_time);
+    const trackId = schedule?.track_id || '';
+    const isDirect = !arrival && !!departure;
+
+    if (!scheduleEditMode) {
+        let arrivalText = '-';
+        if (isDirect) arrivalText = 'Ls';
+        else if (arrival) arrivalText = escapeHtml(arrival);
+
+        return `
+            <td class="schedule-cell ${Number(station.id) === Number(currentStationId) ? 'current-station-cell' : ''}">${arrivalText}</td>
+            <td class="schedule-cell ${Number(station.id) === Number(currentStationId) ? 'current-station-cell' : ''}">${departure ? escapeHtml(departure) : '-'}</td>
         `;
     }
 
+    return `
+        <td class="schedule-cell-edit ${Number(station.id) === Number(currentStationId) ? 'current-station-cell' : ''}">
+            <input type="time" class="schedule-arrival" value="${escapeHtml(arrival)}" data-station-id="${station.id}" data-track-id="${escapeHtml(trackId)}" aria-label="Datang ${escapeHtml(station.name)} ${escapeHtml(train.number)}">
+        </td>
+        <td class="schedule-cell-edit ${Number(station.id) === Number(currentStationId) ? 'current-station-cell' : ''}">
+            <input type="time" class="schedule-departure" value="${escapeHtml(departure)}" data-station-id="${station.id}" aria-label="Berangkat ${escapeHtml(station.name)} ${escapeHtml(train.number)}">
+        </td>
+    `;
+}
+
+function toggleScheduleEditMode(isEditing) {
+    scheduleEditMode = isEditing;
+    document.getElementById('perka-edit-btn')?.classList.toggle('hidden', isEditing);
+    document.getElementById('perka-save-btn')?.classList.toggle('hidden', !isEditing);
+    document.getElementById('perka-cancel-btn')?.classList.toggle('hidden', !isEditing);
+    document.getElementById('edit-station-btn')?.classList.toggle('hidden', isEditing);
+    document.getElementById('add-train-btn')?.classList.toggle('hidden', !isEditing);
+    renderScheduleMatrix();
+}
+
+function collectSchedulePayload() {
+    const stations = getSelectedStations();
+    const payload = [];
+
+    document.querySelectorAll('#schedule-table-body tr[data-train-id]').forEach(row => {
+        const trainId = Number(row.dataset.trainId);
+        const existing = scheduleMapForTrain(trainId);
+
+        stations.forEach(station => {
+            const arrival = row.querySelector(`.schedule-arrival[data-station-id="${station.id}"]`)?.value || null;
+            const departure = row.querySelector(`.schedule-departure[data-station-id="${station.id}"]`)?.value || null;
+            const old = existing[Number(station.id)];
+
+            payload.push({
+                train_id: trainId,
+                station_id: Number(station.id),
+                arrival_time: arrival,
+                departure_time: departure,
+                track_id: old?.track_id || null,
+            });
+        });
+    });
+
+    return payload;
+}
+
+function saveScheduleData() {
+    const payload = collectSchedulePayload();
+    const grouped = {};
+    payload.forEach(item => {
+        grouped[item.train_id] ||= [];
+        grouped[item.train_id].push(item);
+    });
+
+    const requests = Object.entries(grouped).map(([trainId, schedules]) => $.ajax({
+        url: '/train/schedules/save',
+        type: 'POST',
+        data: { _token: token, train_id: trainId, schedules }
+    }));
+
+    if (!requests.length) {
+        toggleScheduleEditMode(false);
+        return;
+    }
+
+    $.when.apply($, requests)
+        .done(() => {
+            showMessage('Daftar waktu berhasil disimpan', 'success');
+            toggleScheduleEditMode(false);
+            loadSchedules();
+        })
+        .fail(xhr => ajaxError(xhr, 'Gagal menyimpan daftar waktu.'));
+}
+
+function clearTrainSchedules(trainId) {
+    if (!scheduleEditMode) return;
+    const row = document.querySelector(`#schedule-table-body tr[data-train-id="${trainId}"]`);
+    if (!row) return;
+    row.querySelectorAll('input[type="time"]').forEach(input => input.value = '');
+}
+
+function openAddTrainModal() {
+    const modal = document.getElementById('add-train-modal');
+    if (!modal) return;
+
+    const trackSelect = document.getElementById('new-train-track');
+    if (trackSelect) {
+        trackSelect.innerHTML = '<option value="">Pilih jalur</option>' + trackData.map(track =>
+            `<option value="${escapeHtml(track.track)}">${escapeHtml(track.track)}</option>`
+        ).join('');
+    }
+
+    document.getElementById('add-train-form')?.reset();
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeAddTrainModal() {
+    const modal = document.getElementById('add-train-modal');
+    modal?.classList.add('hidden');
+    modal?.classList.remove('flex');
+}
+
+function addTrainFromSchedule() {
+    const data = {
+        id: null,
+        number: document.getElementById('new-train-number')?.value.trim(),
+        name: document.getElementById('new-train-name')?.value.trim(),
+        route: document.getElementById('new-train-route')?.value.trim(),
+        arrival_time: document.getElementById('new-train-arrival')?.value || null,
+        departure_time: document.getElementById('new-train-departure')?.value || null,
+        track: document.getElementById('new-train-track')?.value || null,
+        status: document.getElementById('new-train-status')?.value || 'Berhenti'
+    };
+
+    if (!data.number || !data.name || !data.route) {
+        showMessage('Nomor KA, nama KA, dan relasi wajib diisi.', 'error');
+        return;
+    }
+
     $.ajax({
-        url: "/train/get",
-        type: "GET",
-        success: function (response) {
-            trainData = response;
-            renderPerkaTable();
-            updateTrainStatus();
-            generateTimelineTrains();
+        url: '/train/save',
+        type: 'POST',
+        data: { _token: token, trains: [data] }
+    }).done(() => {
+        closeAddTrainModal();
+        showMessage('Data KA berhasil ditambahkan. Silakan isi waktu pada tabel.', 'success');
+        loadSchedules();
+    }).fail(xhr => ajaxError(xhr, 'Gagal menambahkan data KA.'));
+}
+
+// =========================================================
+// PILIH STASIUN
+// =========================================================
+function openStationSelector() {
+    renderStationSelector();
+    const modal = document.getElementById('station-selector-modal');
+    modal?.classList.remove('hidden');
+    modal?.classList.add('flex');
+}
+
+function closeStationSelector() {
+    const modal = document.getElementById('station-selector-modal');
+    modal?.classList.add('hidden');
+    modal?.classList.remove('flex');
+}
+
+function renderStationSelector() {
+    const list = document.getElementById('station-selector-list');
+    if (!list) return;
+    const selected = new Set(selectedStationIds.map(Number));
+
+    list.innerHTML = scheduleStations.map(station => `
+        <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+            <input type="checkbox" class="station-checkbox h-4 w-4" value="${station.id}" ${selected.has(Number(station.id)) ? 'checked' : ''}>
+            <span><strong>${escapeHtml(station.name)}</strong><small class="block text-gray-500">${escapeHtml(station.abbreviation || '')}</small></span>
+        </label>
+    `).join('');
+}
+
+function applyStationSelection() {
+    const ids = [...document.querySelectorAll('.station-checkbox:checked')].map(el => Number(el.value));
+    if (!ids.length) {
+        showMessage('Pilih minimal satu stasiun.', 'error');
+        return;
+    }
+    selectedStationIds = ids;
+    saveSelectedStations();
+    closeStationSelector();
+    renderScheduleMatrix();
+}
+
+// =========================================================
+// LEGACY DAFTAR KA (tetap tersedia untuk data dasar KA)
+// =========================================================
+function loadTrains() {
+    $.ajax({
+        url: '/train/get',
+        type: 'GET',
+        success(response) {
+            trainData = response || [];
+            if (!scheduleEditMode) renderScheduleMatrix();
+            renderJalurDilaluiTable(scheduleDilaluiEditMode);
         },
-        error: function (error) {
-            if (tableBody) {
-                tableBody.innerHTML = `
-                    <tr>
-                        <td colspan="7" class="px-6 py-4 text-center text-sm text-red-500">
-                            Gagal memuat data
-                        </td>
-                    </tr>
-                `;
-            }
-        },
+        error(xhr) { ajaxError(xhr, 'Gagal memuat data KA.'); }
     });
 }
 
 function saveTrains(trains) {
     $.ajax({
-        url: "/train/save",
-        type: "POST",
-        data: {
-            _token: token,
-            trains,
-        },
-        success: function (response) {
-            loadTrains();
-            togglePerkaEditMode(false);
-        },
-        error: function (error) {
-            showMessage('Gagal menyimpan data', 'error');
-        },
-    });
+        url: '/train/save',
+        type: 'POST',
+        data: { _token: token, trains }
+    }).done(() => {
+        showMessage('Data KA berhasil disimpan', 'success');
+        loadSchedules();
+    }).fail(xhr => ajaxError(xhr, 'Gagal menyimpan data KA.'));
 }
 
 function deleteTrain(id) {
-    if (!confirm("Apakah Anda yakin ingin menghapus data ini?")) return;
-
-    $.ajax({
-        url: "/train/delete",
-        type: "POST",
-        data: { _token: token, id },
-        success: function (response) {
-            trainData = trainData.filter((item) => item.id !== id);
-            renderPerkaTable(true);
-        },
-        error: function (error) {
-            showMessage('Gagal menghapus data', 'error');
-        },
-    });
-
+    if (!confirm('Apakah Anda yakin ingin menghapus data KA ini?')) return;
+    $.ajax({ url: '/train/delete', type: 'POST', data: { _token: token, id } })
+        .done(() => loadSchedules())
+        .fail(xhr => ajaxError(xhr, 'Gagal menghapus data KA.'));
 }
 
-function handlePerkaStatusChange(selectElement) {
-    const row = selectElement.closest('tr');
-    const arrivalInput = row.querySelectorAll('input[type="time"]')[0];
-
-    if (selectElement.value === 'Langsung') {
-        if (arrivalInput.value) {
-            arrivalInput.dataset.originalValue = arrivalInput.value;
-        }
-
-        arrivalInput.value = '';
-        arrivalInput.disabled = true;
-    } else {
-        arrivalInput.disabled = false;
-
-        if (arrivalInput.dataset.originalValue) {
-            arrivalInput.value = arrivalInput.dataset.originalValue;
-        }
-    }
-}
-
-function renderPerkaTable(isEditing = false) {
-    const tableBody = document.getElementById('train-table-body');
-    let opsiHeader = document.getElementById('perka-opsi-header');
-
-    if (!tableBody || !opsiHeader) return;
-
-    tableBody.innerHTML = '';
+// =========================================================
+// EMPLASEMEN
+// =========================================================
+function toggleEmplasemenEditMode(isEditing) {
+    document.getElementById('emplasemen-edit-btn')?.classList.toggle('hidden', isEditing);
+    document.getElementById('emplasemen-save-btn')?.classList.toggle('hidden', !isEditing);
+    document.getElementById('emplasemen-cancel-btn')?.classList.toggle('hidden', !isEditing);
+    document.getElementById('emplasemen-view-mode')?.classList.toggle('hidden', isEditing);
+    document.getElementById('emplasemen-edit-mode')?.classList.toggle('hidden', !isEditing);
 
     if (isEditing) {
-        opsiHeader.classList.remove('hidden');
-    } else {
-        opsiHeader.classList.add('hidden');
-    }
-
-    if (trainData.length === 0 && !isEditing) {
-        const row = document.createElement("tr");
-        row.innerHTML = `
-            <td colspan="7" class="px-6 py-4 text-center text-sm text-gray-500">
-                Data tidak ditemukan
-            </td>
-        `;
-        tableBody.appendChild(row);
-    } else {
-        trainData.forEach(train => {
-            const row = document.createElement('tr');
-            row.setAttribute('data-id', train.id);
-
-            if (isEditing) {
-                const isLangsung = train.status === 'Langsung';
-
-                row.innerHTML = `
-                    <td><input type="text" value="${train.number}" class="perka-input perka-number w-20 p-1 border rounded"></td>
-                    <td><input type="text" value="${train.name}" class="perka-input perka-name w-full p-1 border rounded"></td>
-                    <td><input type="text" value="${train.route}" class="perka-input perka-route w-full p-1 border rounded"></td>
-                    <td><input type="time" value="${isLangsung ? '' : train.arrival_time}" class="perka-input perka-arrival w-full p-1 border rounded" ${isLangsung ? 'disabled' : ''}></td>
-                    <td><input type="time" value="${train.departure_time}" class="perka-input perka-departure w-full p-1 border rounded"></td>
-                    <td><input type="text" value="${train.track}" class="perka-input perka-track w-16 text-center p-1 border rounded"></td>
-                    <td>
-                        <select class="perka-input perka-status w-full p-1 border rounded" onchange="handlePerkaStatusChange(this)">
-                            <option value="Berhenti" ${!isLangsung ? 'selected' : ''}>Berhenti</option>
-                            <option value="Langsung" ${isLangsung ? 'selected' : ''}>Langsung</option>
-                        </select>
-                    </td>
-                    <td class="text-center"><button class="text-red-500 hover:text-red-700 font-semibold" onclick="deleteTrain(${train.id})">Hapus</button></td>
-                `;
-            } else {
-                let statusClass = '';
-
-                if (train.status === 'Berhenti') {
-                    statusClass = 'status-scheduled font-semibold';
-                } else if (train.status === 'Langsung') {
-                    statusClass = 'status-arrived font-semibold';
-                } else {
-                    statusClass = 'font-semibold';
-                }
-
-                row.innerHTML = `
-                    <td>${train.number}</td>
-                    <td>${train.name}</td>
-                    <td>${train.route}</td>
-                    <td>${train.status === 'Langsung' ? '-' : train.arrival_time}</td>
-                    <td>${train.departure_time}</td>
-                    <td>Jalur ${train.track}</td>
-                    <td class="${statusClass}">${train.status || 'Berhenti'}</td>
-                `;
-            }
-            tableBody.appendChild(row);
-        });
+        const input = document.getElementById('emplasemen-upload');
+        if (input) input.value = '';
     }
 }
 
-function togglePerkaEditMode(isEditing) {
-    const editBtn = document.getElementById('perka-edit-btn');
-    const saveBtn = document.getElementById('perka-save-btn');
-    const cancelBtn = document.getElementById('perka-cancel-btn');
-    const addRowContainer = document.getElementById('add-perka-row-container');
-    const opsiHeader = document.getElementById('perka-opsi-header');
-
-    if (isEditing) {
-        editBtn.classList.add('hidden');
-        saveBtn.classList.remove('hidden');
-        cancelBtn.classList.remove('hidden');
-        addRowContainer.classList.remove('hidden');
-        opsiHeader.classList.remove('hidden');
-    } else {
-        editBtn.classList.remove('hidden');
-        saveBtn.classList.add('hidden');
-        cancelBtn.classList.add('hidden');
-        addRowContainer.classList.add('hidden');
-        opsiHeader.classList.add('hidden');
-    }
-
-    renderPerkaTable(isEditing);
-}
-
-function savePerkaChanges() {
-    const tableRows = document.querySelectorAll("#train-table-body tr");
-    const newTrainData = [];
-    let parsingSuccess = true;
-    let errorMessage = "";
-
-    try {
-        tableRows.forEach((row) => {
-            const numberInput = row.querySelector('.perka-number');
-            const nameInput = row.querySelector('.perka-name');
-            const routeInput = row.querySelector('.perka-route');
-            const arrivalInput = row.querySelector('.perka-arrival');
-            const departureInput = row.querySelector('.perka-departure');
-            const trackInput = row.querySelector('.perka-track');
-            const statusSelect = row.querySelector('.perka-status');
-
-            const trainId = row.dataset.id ? parseInt(row.dataset.id) : null;
-            const newTrain = {
-                id: trainId,
-                number: numberInput.value,
-                name: nameInput.value,
-                route: routeInput.value,
-                arrival_time: arrivalInput.value,
-                departure_time: departureInput.value,
-                track: trackInput.value,
-                status: statusSelect.value
-            }
-
-            if (trainId) {
-                const trainIndex = trainData.findIndex(t => t.id === trainId);
-                if (trainIndex !== -1) {
-                    const oldTrain = trainData[trainIndex];
-                    const hasChanges = oldTrain.number !== newTrain.number ||
-                        oldTrain.name !== newTrain.name ||
-                        oldTrain.route !== newTrain.route ||
-                        oldTrain.arrival_time !== newTrain.arrival_time ||
-                        oldTrain.departure_time !== newTrain.departure_time ||
-                        oldTrain.track !== newTrain.track ||
-                        oldTrain.status !== newTrain.status;
-
-                    if (hasChanges) {
-                        newTrainData.push(newTrain);
-                    }
-                }
-            } else {
-                if (numberInput.value && nameInput.value && arrivalInput.value && departureInput.value) {
-                    newTrainData.push(newTrain);
-                }
-            }
-        });
-    } catch (error) {
-        console.error("Error saat memproses tabel perka:", error);
-        errorMessage = error.message || "Terjadi kesalahan saat memvalidasi data.";
-        parsingSuccess = false;
-    }
-
-    if (!parsingSuccess) {
-        showMessage(errorMessage);
+function saveEmplasemenChanges() {
+    const input = document.getElementById('emplasemen-upload');
+    if (!input?.files?.length) {
+        toggleEmplasemenEditMode(false);
         return;
     }
 
-    if (newTrainData.length > 0) {
-        saveTrains(newTrainData);
-    } else {
-        togglePerkaEditMode(false);
-        hideLoading();
+    const formData = new FormData();
+    formData.append('_token', token);
+    formData.append('file', input.files[0]);
+
+    $.ajax({
+        url: '/station/emplasemen-update',
+        type: 'POST',
+        data: formData,
+        processData: false,
+        contentType: false
+    }).done(() => {
+        showMessage('Emplasemen berhasil diperbarui', 'success');
+        setTimeout(() => location.reload(), 500);
+    }).fail(xhr => ajaxError(xhr, 'Gagal menyimpan emplasemen.'));
+}
+
+function previewEmplasemen(file) {
+    const container = document.getElementById('emplasemen-preview-container');
+    if (!container || !file) return;
+
+    if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = e => {
+            container.innerHTML = `<img src="${e.target.result}" class="w-full h-auto max-h-[550px] rounded-lg object-contain" alt="Preview emplasemen">`;
+        };
+        reader.readAsDataURL(file);
+    } else if (file.type === 'application/pdf') {
+        const url = URL.createObjectURL(file);
+        container.innerHTML = `<iframe src="${url}" width="100%" height="450" class="rounded-lg border-0" title="Preview PDF emplasemen"></iframe>`;
     }
 }
 
-function addPerkaRow() {
-    const tableBody = document.getElementById('train-table-body');
-    const newRow = document.createElement('tr');
-    newRow.innerHTML = `
-        <td><input type="text" placeholder="No. KA" class="perka-input perka-number w-20 p-1 border rounded"></td>
-        <td><input type="text" placeholder="Nama KA" class="perka-input perka-name w-full p-1 border rounded"></td>
-        <td><input type="text" placeholder="Rute" class="perka-input perka-route w-full p-1 border rounded"></td>
-        <td><input type="time" class="perka-input perka-arrival w-full p-1 border rounded"></td>
-        <td><input type="time" class="perka-input perka-departure w-full p-1 border rounded"></td>
-        <td><input type="text" placeholder="Jalur" class="perka-input perka-track w-16 text-center p-1 border rounded"></td>
-        <td>
-            <select class="perka-input perka-status w-full p-1 border rounded" onchange="handlePerkaStatusChange(this)">
-                <option value="Berhenti" selected>Berhenti</option>
-                <option value="Langsung">Langsung</option>
-            </select>
-        </td>
-        <td class="text-center"><button class="text-red-500 hover:text-red-700 font-semibold" onclick="this.closest('tr').remove()">Hapus</button></td>
-    `;
-    tableBody.appendChild(newRow);
-}
-
-function filterTrains() {
-    const searchInput = document.getElementById('search-train');
-    if (!searchInput) return;
-
-    const searchTerm = searchInput.value.toLowerCase();
-    const rows = document.querySelectorAll('#train-table-body tr');
-
-    rows.forEach(row => {
-        let text = '';
-        const inputs = row.querySelectorAll('input');
-        if (inputs.length > 0) {
-            // Edit mode, search within inputs
-            inputs.forEach(input => {
-                text += input.value.toLowerCase() + ' ';
-            });
-        } else {
-            // View mode
-            text = row.textContent.toLowerCase();
-        }
-        row.style.display = text.includes(searchTerm) ? '' : 'none';
-    });
-}
-
-// --- End of Train functions ---
-
-// --- Start of Emplasemen functions ---
-
-function saveEmplasemenChanges() {
-    const fileInput = document.getElementById('emplasemen-upload');
-
-    if (fileInput.files && fileInput.files[0]) {
-        const formData = new FormData();
-        formData.append('_token', token);
-        formData.append('file', fileInput.files[0]); // ⬅️ kirim file asli
-
-        $.ajax({
-            url: "/station/emplasemen-update",
-            type: "POST",
-            data: formData,
-            processData: false, // wajib
-            contentType: false, // wajib
-            success: function (response) {
-                location.reload(); // biar update tampil
-            },
-            error: function (error) {
-                console.log(error);
-                showMessage('Gagal menyimpan data', 'error');
-            }
-        });
-    } else {
-        toggleEmplasemenEditMode(false);
-    }
-}
-
-function toggleEmplasemenEditMode(isEditing) {
-    const editBtn = document.getElementById('emplasemen-edit-btn');
-    const saveBtn = document.getElementById('emplasemen-save-btn');
-    const cancelBtn = document.getElementById('emplasemen-cancel-btn');
-    const uploadInput = document.getElementById('emplasemen-upload');
-    const image = document.getElementById('emplasemen-image');
-    const preview = document.getElementById('emplasemen-image-preview');
-    const viewMode = document.getElementById('emplasemen-view-mode');
-    const editMode = document.getElementById('emplasemen-edit-mode');
-
-    if (isEditing) {
-        editBtn.classList.add('hidden');
-        saveBtn.classList.remove('hidden');
-        cancelBtn.classList.remove('hidden');
-        viewMode.classList.add('hidden');
-        editMode.classList.remove('hidden');
-    } else {
-        editBtn.classList.remove('hidden');
-        saveBtn.classList.add('hidden');
-        cancelBtn.classList.add('hidden');
-        viewMode.classList.remove('hidden');
-        editMode.classList.add('hidden');
-        preview.src = image.src;
-        uploadInput.value = '';
-    }
-}
-
-// --- End of Emplasemen functions ---
-
-// --- Start of Jalur functions ---
-
+// =========================================================
+// INFORMASI JALUR
+// =========================================================
 function loadTracks() {
-    const tableBody = document.getElementById("jalur-table-body");
-    if (tableBody) {
-        tableBody.innerHTML = `
-            <tr>
-                <td colspan="9" class="px-6 py-4">
-                    <div class="inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50 my-4">
-                        <div class="text-center">
-                            <i class="fas fa-spinner fa-spin text-3xl text-blue-500 mb-2"></i>
-                            <p class="text-gray-600">Memuat data...</p>
-                        </div>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }
+    const body = document.getElementById('jalur-table-body');
+    if (!body) return;
+    body.innerHTML = `<tr><td colspan="10" class="px-6 py-8 text-center"><i class="fas fa-spinner fa-spin text-2xl"></i><p class="mt-2 text-gray-500">Memuat jalur...</p></td></tr>`;
 
-    $.ajax({
-        url: "/track/get",
-        type: "GET",
-        success: function (response) {
-            trackData = response;
-            renderJalurTable();
-        },
-        error: function (error) {
-            showMessage('Gagal memuat data', 'error');
-
-            if (tableBody) {
-                tableBody.innerHTML = `
-                    <tr>
-                        <td colspan="9" class="px-6 py-4 text-center text-sm text-red-500">
-                            Gagal memuat data
-                        </td>
-                    </tr>
-                `;
-            }
-        },
-    });
+    $.ajax({ url: '/track/get', type: 'GET' })
+        .done(response => {
+            trackData = response || [];
+            renderJalurTable(jalurEditMode);
+        })
+        .fail(xhr => {
+            ajaxError(xhr, 'Gagal memuat data jalur.');
+            body.innerHTML = `<tr><td colspan="10" class="px-6 py-8 text-center text-red-500">Gagal memuat data jalur.</td></tr>`;
+        });
 }
 
-function saveTracks(tracks) {
-    $.ajax({
-        url: "/track/save",
-        type: "POST",
-        data: { _token: token, tracks },
-        success: function (response) {
-            loadTracks();
-            toggleJalurEditMode(false);
-        },
-        error: function (error) {
-            showMessage('Gagal menyimpan data', 'error');
-        },
-    });
-}
-
-function deleteTrack(id) {
-    if (!confirm("Apakah Anda yakin ingin menghapus data ini?")) return;
-
-    $.ajax({
-        url: "/track/delete",
-        type: "POST",
-        data: { _token: token, id },
-        success: function (response) {
-            trackData = trackData.filter((item) => item.id !== id);
-            renderJalurTable(true);
-        },
-        error: function (error) {
-            showMessage('Gagal menghapus data', 'error');
-        },
-    });
-}
+let jalurEditMode = false;
 
 function renderJalurTable(isEditing = false) {
-    const tableBody = document.getElementById('jalur-table-body');
-    const opsiHeader = document.getElementById('jalur-opsi-header');
+    const body = document.getElementById('jalur-table-body');
+    const opsi = document.getElementById('jalur-opsi-header');
+    if (!body) return;
+    opsi?.classList.toggle('hidden', !isEditing);
 
-    if (!tableBody || !opsiHeader) return;
-
-    tableBody.innerHTML = '';
-
-    if (isEditing) {
-        opsiHeader.classList.remove('hidden');
-    } else {
-        opsiHeader.classList.add('hidden');
+    if (!trackData.length) {
+        body.innerHTML = `<tr><td colspan="10" class="px-6 py-8 text-center text-gray-500">Belum ada data jalur.</td></tr>`;
+        return;
     }
 
-    if (trackData.length === 0 && !isEditing) {
-        const row = document.createElement("tr");
-        row.innerHTML = `
-            <td colspan="9" class="px-6 py-4 text-center text-sm text-gray-500">
-                Data tidak ditemukan
-            </td>
-        `;
-        tableBody.appendChild(row);
-    } else {
-        trackData.forEach(item => {
-            const row = document.createElement('tr');
-            row.setAttribute('data-id', item.id);
+    body.innerHTML = trackData.map(item => {
+        if (!isEditing) {
+            return `<tr data-id="${item.id}">
+                <td class="text-center">${escapeHtml(item.track)}</td>
+                <td>${escapeHtml(item.max_length)}</td>
+                <td>${escapeHtml(item.effective_length)}</td>
+                <td class="text-center">${escapeHtml(item.train || '-')}</td>
+                <td class="text-center">${escapeHtml(item.GB || '-')}</td>
+                <td class="text-center">${escapeHtml(item.GD || '-')}</td>
+                <td class="text-center">${escapeHtml(item.GT || '-')}</td>
+                <td class="text-center">${escapeHtml(item.GK || '-')}</td>
+                <td>${escapeHtml(item.remarks || '-')}</td>
+            </tr>`;
+        }
 
-            if (isEditing) {
-                row.innerHTML = `
-                    <td><input type="text" value="${item.track}" class="w-full p-1 border rounded text-center"></td>
-                    <td><input type="text" value="${item.max_length}" class="w-full p-1 border rounded"></td>
-                    <td><input type="text" value="${item.effective_length}" class="w-full p-1 border rounded"></td>
-                    <td><input type="text" value="${item.train ?? '-'}" class="w-full p-1 border rounded"></td>
-                    <td><input type="text" value="${item.GB ?? '-'}" class="w-full p-1 border rounded text-center"></td>
-                    <td><input type="text" value="${item.GD ?? '-'}" class="w-full p-1 border rounded text-center"></td>
-                    <td><input type="text" value="${item.GT ?? '-'}" class="w-full p-1 border rounded text-center"></td>
-                    <td><input type="text" value="${item.GK ?? '-'}" class="w-full p-1 border rounded text-center"></td>
-                    <td><input type="text" value="${item.remarks ?? '-'}" class="w-full p-1 border rounded"></td>
-                    <td class="text-center"><button class="text-red-500 hover:text-red-700 font-semibold" onclick="deleteTrack(${item.id})">Hapus</button></td>
-                `;
-            } else {
-                row.innerHTML = `
-                    <td class="text-center">${item.track}</td>
-                    <td>${item.max_length}</td>
-                    <td>${item.effective_length}</td>
-                    <td class="text-center">${item.train ?? '-'}</td>
-                    <td class="text-center">${item.GB ?? '-'}</td>
-                    <td class="text-center">${item.GD ?? '-'}</td>
-                    <td class="text-center">${item.GT ?? '-'}</td>
-                    <td class="text-center">${item.GK ?? '-'}</td>
-                    <td>${item.remarks ?? '-'}</td>
-                `;
-            }
-            tableBody.appendChild(row);
-        });
-    }
+        return `<tr data-id="${item.id}">
+            <td><input class="track-input" data-field="track" value="${escapeHtml(item.track)}"></td>
+            <td><input class="track-input" data-field="max_length" value="${escapeHtml(item.max_length)}"></td>
+            <td><input class="track-input" data-field="effective_length" value="${escapeHtml(item.effective_length)}"></td>
+            <td><input class="track-input" data-field="train" value="${escapeHtml(item.train || '')}"></td>
+            <td><input class="track-input text-center" data-field="GB" value="${escapeHtml(item.GB || '')}"></td>
+            <td><input class="track-input text-center" data-field="GD" value="${escapeHtml(item.GD || '')}"></td>
+            <td><input class="track-input text-center" data-field="GT" value="${escapeHtml(item.GT || '')}"></td>
+            <td><input class="track-input text-center" data-field="GK" value="${escapeHtml(item.GK || '')}"></td>
+            <td><input class="track-input" data-field="remarks" value="${escapeHtml(item.remarks || '')}"></td>
+            <td class="text-center"><button type="button" class="text-red-500 hover:text-red-700 font-semibold" onclick="deleteTrack(${item.id})">Hapus</button></td>
+        </tr>`;
+    }).join('');
 }
 
 function toggleJalurEditMode(isEditing) {
-    document.getElementById('jalur-edit-btn').classList.toggle('hidden', isEditing);
-    document.getElementById('jalur-save-btn').classList.toggle('hidden', !isEditing);
-    document.getElementById('jalur-cancel-btn').classList.toggle('hidden', !isEditing);
-    document.getElementById('add-jalur-row-container').classList.toggle('hidden', !isEditing);
-    document.getElementById('mulai-berlaku-text').classList.toggle('hidden', isEditing);
-    document.getElementById('mulai-berlaku-date').classList.toggle('hidden', !isEditing);
-
+    jalurEditMode = isEditing;
+    document.getElementById('jalur-edit-btn')?.classList.toggle('hidden', isEditing);
+    document.getElementById('jalur-save-btn')?.classList.toggle('hidden', !isEditing);
+    document.getElementById('jalur-cancel-btn')?.classList.toggle('hidden', !isEditing);
+    document.getElementById('add-jalur-row-container')?.classList.toggle('hidden', !isEditing);
+    document.getElementById('mulai-berlaku-text')?.classList.toggle('hidden', isEditing);
+    document.getElementById('mulai-berlaku-date')?.classList.toggle('hidden', !isEditing);
+    if (isEditing) originalValidity = document.getElementById('mulai-berlaku-date')?.value || '';
     renderJalurTable(isEditing);
 }
 
+function collectTrackData() {
+    const result = [];
+    document.querySelectorAll('#jalur-table-body tr[data-id]').forEach(row => {
+        const item = { id: Number(row.dataset.id) };
+        row.querySelectorAll('.track-input').forEach(input => item[input.dataset.field] = input.value.trim());
+        if (item.track && item.max_length && item.effective_length) result.push(item);
+    });
+
+    document.querySelectorAll('#jalur-table-body tr:not([data-id])').forEach(row => {
+        const item = {};
+        row.querySelectorAll('.track-input').forEach(input => item[input.dataset.field] = input.value.trim());
+        if (item.track && item.max_length && item.effective_length) result.push(item);
+    });
+    return result;
+}
+
 function saveJalurChanges() {
-    const tableRows = document.querySelectorAll('#jalur-table-body tr');
-    const newTrackData = [];
+    const tracks = collectTrackData();
+    const validity = document.getElementById('mulai-berlaku-date')?.value || '';
+    const requests = [];
 
-    tableRows.forEach(row => {
-        const inputs = row.querySelectorAll('input');
-        const trackId = row.dataset.id ? parseInt(row.dataset.id, 10) : null;
-        const data = {
-            id: trackId,
-            track: inputs[0].value,
-            max_length: inputs[1].value,
-            effective_length: inputs[2].value,
-            train: inputs[3].value,
-            GB: inputs[4].value,
-            GD: inputs[5].value,
-            GT: inputs[6].value,
-            GK: inputs[7].value,
-            remarks: inputs[8].value
-        };
+    if (validity !== originalValidity) {
+        requests.push($.ajax({ url: '/track/validity', type: 'POST', data: { _token: token, validity } }));
+    }
+    if (tracks.length) {
+        requests.push($.ajax({ url: '/track/save', type: 'POST', data: { _token: token, tracks } }));
+    }
 
-        if (trackId) {
-            const trackIndex = trackData.findIndex(t => t.id === trackId);
-            if (trackIndex !== -1) {
-                const oldTrack = trackData[trackIndex];
-                const hasChanges = oldTrack.track !== data.track ||
-                    oldTrack.max_length !== data.max_length ||
-                    oldTrack.effective_length !== data.effective_length ||
-                    oldTrack.train !== data.train ||
-                    oldTrack.GB !== data.GB ||
-                    oldTrack.GD !== data.GD ||
-                    oldTrack.GT !== data.GT ||
-                    oldTrack.GK !== data.GK ||
-                    oldTrack.remarks !== data.remarks;
-
-                if (hasChanges) {
-                    newTrackData.push(data);
-                }
-            }
-        } else {
-            if (data.track && data.max_length && data.effective_length) {
-                newTrackData.push(data);
-            }
-        }
-    });
-
-    saveTrackValidity();
-
-    if (newTrackData.length > 0) {
-        saveTracks(newTrackData);
-    } else {
+    if (!requests.length) {
         toggleJalurEditMode(false);
-    }
-}
-
-function addJalurRow() {
-    const tableBody = document.getElementById('jalur-table-body');
-    const newRow = document.createElement('tr');
-    newRow.innerHTML = `
-        <td><input type="text" placeholder="Jalur" class="w-full p-1 border rounded text-center"></td>
-        <td><input type="text" placeholder="Panjang" class="w-full p-1 border rounded"></td>
-        <td><input type="text" placeholder="Efektif" class="w-full p-1 border rounded"></td>
-        <td><input type="text" placeholder="Kereta" class="w-full p-1 border rounded"></td>
-        <td><input type="text" placeholder="GB" class="w-full p-1 border rounded text-center"></td>
-        <td><input type="text" placeholder="GD" class="w-full p-1 border rounded text-center"></td>
-        <td><input type="text" placeholder="GT" class="w-full p-1 border rounded text-center"></td>
-        <td><input type="text" placeholder="GK" class="w-full p-1 border rounded text-center"></td>
-        <td><input type="text" placeholder="Keterangan" class="w-full p-1 border rounded"></td>
-        <td class="text-center"><button class="text-red-500 hover:text-red-700 font-semibold" onclick="this.closest('tr').remove()">Hapus</button></td>
-    `;
-    tableBody.appendChild(newRow);
-}
-
-function renderTrackValidity(trackValidity = false) {
-    const dateText = document.getElementById('mulai-berlaku-text');
-    const dateInput = document.getElementById('mulai-berlaku-date');
-
-    if (trackValidity) {
-        dateInput.value = trackValidity;
-    }
-
-    if (dateInput.value) {
-        const date = new Date(dateInput.value);
-        const options = { day: 'numeric', month: 'long', year: 'numeric' };
-        dateText.value = date.toLocaleDateString('id-ID', options);
-    }
-}
-
-function saveTrackValidity() {
-    const dateText = document.getElementById('mulai-berlaku-text');
-    const dateInput = document.getElementById('mulai-berlaku-date');
-    let oldTrackValidity = dateText.value;
-
-    if (dateText.value) {
-        const [day, monthText, year] = dateText.value.split(' ');
-
-        const bulan = {
-            Januari: '01',
-            Februari: '02',
-            Maret: '03',
-            April: '04',
-            Mei: '05',
-            Juni: '06',
-            Juli: '07',
-            Agustus: '08',
-            September: '09',
-            Oktober: '10',
-            November: '11',
-            Desember: '12'
-        };
-
-        const month = bulan[monthText];
-        const formattedDate = `${year}-${month}-${day.padStart(2, '0')}`;
-
-        if (formattedDate) {
-            oldTrackValidity = formattedDate;
-        }
-    }
-
-    if (oldTrackValidity !== dateInput.value) {
-        $.ajax({
-            url: "/track/validity",
-            type: "POST",
-            data: { _token: token, validity: dateInput.value },
-            success: function (response) {
-                renderTrackValidity(dateInput.value);
-            },
-            error: function (error) {
-                showMessage('Gagal menyimpan data', 'error');
-            },
-        });
-    }
-}
-
-// --- End of Jalur functions ---
-
-// --- Start of Jalur Dilalui functions ---
-
-function loadJalurDilalui() {
-    const tableBody = document.getElementById("jalur-dilalui-table-body");
-
-    if (tableBody) {
-        tableBody.innerHTML = `
-            <tr>
-                <td colspan="6" class="px-6 py-4">
-                    <div class="inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50 my-4">
-                        <div class="text-center">
-                            <i class="fas fa-spinner fa-spin text-3xl text-blue-500 mb-2"></i>
-                            <p class="text-gray-600">Memuat data...</p>
-                        </div>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }
-
-    $.ajax({
-        url: "/passed-tracks/get",
-        type: "GET",
-        success: function (response) {
-            jalurDilaluiData = response;
-            renderJalurDilaluiTable();
-        },
-        error: function (error) {
-            showMessage('Gagal memuat data', 'error');
-
-            if (tableBody) {
-                tableBody.innerHTML = `
-                    <tr>
-                        <td colspan="6" class="px-6 py-4 text-center text-sm text-red-500">
-                            Gagal memuat data
-                        </td>
-                    </tr>
-                `;
-            }
-        },
-    });
-}
-
-function saveJalurDilalui(trainTracks) {
-    $.ajax({
-        url: "/passed-tracks/save",
-        type: "POST",
-        data: { _token: token, trainTracks },
-        success: function (response) {
-            loadJalurDilalui();
-            loadTrains();
-            toggleJalurDilaluiEditMode(false);
-        },
-        error: function (error) {
-            showMessage('Gagal menyimpan data', 'error');
-        },
-    });
-}
-
-function deleteJalurDilalui(id) {
-    if (!confirm("Apakah Anda yakin ingin menghapus data ini?")) return;
-
-    $.ajax({
-        url: "/passed-tracks/delete",
-        type: "POST",
-        data: { _token: token, id },
-        success: function (response) {
-            jalurDilaluiData = jalurDilaluiData.filter((item) => item.id !== id);
-            renderJalurDilaluiTable(true);
-        },
-        error: function (error) {
-            showMessage('Gagal menghapus data', 'error');
-        },
-    });
-}
-
-function renderJalurDilaluiTable(isEditing = false) {
-    const tableBody = document.getElementById('jalur-dilalui-table-body');
-    const opsiHeader = document.getElementById('jalur-dilalui-opsi-header');
-    if (!tableBody || !opsiHeader) return;
-
-    tableBody.innerHTML = '';
-
-    if (isEditing) {
-        opsiHeader.classList.remove('hidden');
-    } else {
-        opsiHeader.classList.add('hidden');
-    }
-
-    if (jalurDilaluiData.length === 0 && !isEditing) {
-        const row = document.createElement("tr");
-        row.innerHTML = `
-            <td colspan="6" class="px-6 py-4 text-center text-sm text-gray-500">
-                Data tidak ditemukan
-            </td>
-        `;
-        tableBody.appendChild(row);
-    } else {
-        jalurDilaluiData.forEach(item => {
-            const row = document.createElement('tr');
-            row.setAttribute('data-id', item.id);
-            row.className = 'border-b border-gray-200 hover:bg-gray-50';
-
-            if (isEditing) {
-                row.innerHTML = `
-                    <td class="px-6 py-4 text-center text-sm text-gray-900">
-                        <select class="jalur-dilalui-input jalur-jalur w-full p-2 border border-gray-300 rounded text-sm">
-                            <option value="">Pilih Jalur</option>
-                            ${trackData.map(track => `<option value="${track.id}" ${item.train.track == track.track ? 'selected' : ''}>${track.track}</option>`).join('')}
-                        </select>
-                    </td>
-                    <td class="px-6 py-4 text-center text-sm text-gray-900">
-                        <select class="jalur-dilalui-input jalur-nomor-ka jalur-train-select w-full p-2 border border-gray-300 rounded text-sm">
-                            <option value="">Pilih No. KA</option>
-                            ${trainData.map(train => `<option value="${train.id}" data-number="${train.number}" data-arrival="${train.arrival_time}" data-departure="${train.departure_time}" data-route="${train.route}" ${item.train.number == train.number ? 'selected' : ''}>
-                                ${train.number}
-                            </option>`).join('')}
-                        </select>
-                    </td>
-                    <td class="px-6 py-4 text-center text-sm text-gray-900">
-                        <input type="time" value="${item.train.arrival_time }" class="jalur-dilalui-input jalur-datang w-full p-2 border border-gray-300 rounded text-sm" readonly>
-                    </td>
-                    <td class="px-6 py-4 text-center text-sm text-gray-900">
-                        <input type="time" value="${item.train.departure_time }" class="jalur-dilalui-input jalur-berangkat w-full p-2 border border-gray-300 rounded text-sm" readonly>
-                    </td>
-                    <td class="px-6 py-4 text-center text-sm text-gray-900" colspan="2">
-                        <input type="text" value="${item.train.route }" class="jalur-dilalui-input jalur-dari w-full p-2 border border-gray-300 rounded text-sm" placeholder="Dari - Ke" readonly>
-                    </td>
-                    <td class="px-6 py-4 text-center text-sm text-gray-900">
-                        <button class="text-red-500 hover:text-red-700 font-semibold ml-2" onclick="deleteJalurDilalui(${item.id})">Hapus</button>
-                    </td>
-                `;
-
-                // Attach event listener untuk select change
-                const selectElement = row.querySelector('.jalur-train-select');
-                selectElement.addEventListener('change', function() {
-                    onJalurTrainSelectChange(this);
-                });
-            } else {
-                row.innerHTML = `
-                    <td class="px-6 py-4 text-center text-sm text-gray-900">${item.train.track || '-'}</td>
-                    <td class="px-6 py-4 text-center text-sm text-gray-900">${item.train.number || '-'}</td>
-                    <td class="px-6 py-4 text-center text-sm text-gray-900">${item.train.arrival_time || '-'}</td>
-                    <td class="px-6 py-4 text-center text-sm text-gray-900">${item.train.departure_time || '-'}</td>
-                    <td class="px-6 py-4 text-center text-sm text-gray-900" colspan="2">${item.train.route || '-'}</td>
-                `;
-            }
-            tableBody.appendChild(row);
-        });
-    }
-
-}
-
-function toggleJalurDilaluiEditMode(isEditing) {
-    const editBtn = document.getElementById('jalur-dilalui-edit-btn');
-    const saveBtn = document.getElementById('jalur-dilalui-save-btn');
-    const cancelBtn = document.getElementById('jalur-dilalui-cancel-btn');
-    const addRowContainer = document.getElementById('add-jalur-dilalui-row-container');
-
-    if (editBtn) editBtn.classList.toggle('hidden', isEditing);
-    if (saveBtn) saveBtn.classList.toggle('hidden', !isEditing);
-    if (cancelBtn) cancelBtn.classList.toggle('hidden', !isEditing);
-    if (addRowContainer) addRowContainer.classList.toggle('hidden', !isEditing);
-
-    renderJalurDilaluiTable(isEditing);
-}
-
-function saveJalurDilaluiChanges() {
-    const tableRows = document.querySelectorAll('#jalur-dilalui-table-body tr');
-    const newJalurDilaluiData = [];
-
-    tableRows.forEach((row, index) => {
-        const inputs = row.querySelectorAll('.jalur-dilalui-input');
-        const trainId = row.dataset.id ? parseInt(row.dataset.id, 10) : null;
-        const data = {
-            id: trainId,
-            track_id: inputs[0].value,
-            train_id: inputs[1].value,
-        };
-
-        if (!data.track_id || !data.train_id) {
-            showMessage(`Baris ${index + 1}: Data tidak lengkap`, 'error');
-            return;
-        }
-
-        if (trainId) {
-            const oldData = jalurDilaluiData.find(item => item.id === trainId);
-            const hasChanges = oldData.track_id !== data.track_id || oldData.train_id !== data.train_id;
-
-            if (hasChanges) {
-                newJalurDilaluiData.push(data);
-            }
-        } else {
-            newJalurDilaluiData.push(data);
-        }
-    });
-
-    if (newJalurDilaluiData.length > 0) {
-        saveJalurDilalui(newJalurDilaluiData);
-    } else {
-        toggleJalurDilaluiEditMode(false);
-    }
-}
-
-function addJalurDilaluiRow() {
-    const tableBody = document.getElementById('jalur-dilalui-table-body');
-    const newRow = document.createElement('tr');
-
-    newRow.innerHTML = `
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-            <select class="jalur-dilalui-input jalur-jalur w-full p-2 border border-gray-300 rounded text-sm">
-                <option value="">Pilih Jalur</option>
-                ${trackData.map(track => `<option value="${track.id}">${track.track}</option>`).join('')}
-            </select>
-        </td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-            <select class="jalur-dilalui-input jalur-nomor-ka jalur-train-select w-full p-2 border border-gray-300 rounded text-sm">
-                <option value="">Pilih No. KA</option>
-                ${trainData.map(train => `<option value="${train.id}" data-number="${train.number}" data-arrival="${train.arrival_time}" data-departure="${train.departure_time}" data-route="${train.route}">
-                    ${train.number}
-                </option>`).join('')}
-            </select>
-        </td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-            <input type="time" class="jalur-dilalui-input jalur-datang w-full p-2 border border-gray-300 rounded text-sm" readonly>
-        </td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-            <input type="time" class="jalur-dilalui-input jalur-berangkat w-full p-2 border border-gray-300 rounded text-sm" readonly>
-        </td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" colspan="2">
-            <input type="text" class="jalur-dilalui-input jalur-dari w-full p-2 border border-gray-300 rounded text-sm" placeholder="Dari - Ke" readonly>
-        </td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-            <button class="text-red-500 hover:text-red-700 font-semibold ml-2" onclick="this.closest('tr').remove()">Hapus</button>
-        </td>
-    `;
-
-    tableBody.appendChild(newRow);
-
-    // Attach event listener untuk select change
-    const selectElement = newRow.querySelector('.jalur-train-select');
-    selectElement.addEventListener('change', function() {
-        onJalurTrainSelectChange(this);
-    });
-}
-
-function onJalurTrainSelectChange(selectElement) {
-    const row = selectElement.closest('tr');
-    const selectedOption = selectElement.options[selectElement.selectedIndex];
-
-    if (!selectedOption.value) {
-        // Clear fields jika tidak ada pilihan
-        row.querySelector('.jalur-datang').value = '';
-        row.querySelector('.jalur-berangkat').value = '';
-        row.querySelector('.jalur-dari').value = '';
         return;
     }
 
-    // Get data dari selected option
-    const arrivalTime = selectedOption.getAttribute('data-arrival');
-    const departureTime = selectedOption.getAttribute('data-departure');
-    const route = selectedOption.getAttribute('data-route');
-
-    // Auto-fill fields
-    row.querySelector('.jalur-datang').value = arrivalTime || '';
-    row.querySelector('.jalur-berangkat').value = departureTime || '';
-    row.querySelector('.jalur-dari').value = route || '';
+    $.when.apply($, requests)
+        .done(() => {
+            showMessage('Informasi jalur berhasil disimpan', 'success');
+            toggleJalurEditMode(false);
+            loadTracks();
+        })
+        .fail(xhr => ajaxError(xhr, 'Gagal menyimpan informasi jalur.'));
 }
 
-// --- End of Jalur Dilalui functions ---
-
-// -- Start of Timeline functions ---
-function getCurrentTimeGMT7() {
-    const now = new Date();
-    const offset = 7;
-    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-    return new Date(utc + (3600000 * offset));
+function deleteTrack(id) {
+    if (!confirm('Hapus jalur ini?')) return;
+    $.ajax({ url: '/track/delete', type: 'POST', data: { _token: token, id } })
+        .done(() => {
+            trackData = trackData.filter(item => Number(item.id) !== Number(id));
+            renderJalurTable(true);
+        })
+        .fail(xhr => ajaxError(xhr, 'Gagal menghapus jalur.'));
 }
 
-function formatTimeWithSeconds(date) {
-    return date.toTimeString().slice(0, 8);
+function addJalurRow() {
+    const body = document.getElementById('jalur-table-body');
+    if (!body) return;
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td><input class="track-input" data-field="track" placeholder="Jalur"></td>
+        <td><input class="track-input" data-field="max_length" placeholder="Panjang"></td>
+        <td><input class="track-input" data-field="effective_length" placeholder="Efektif"></td>
+        <td><input class="track-input" data-field="train" placeholder="Kereta"></td>
+        <td><input class="track-input text-center" data-field="GB" placeholder="GB"></td>
+        <td><input class="track-input text-center" data-field="GD" placeholder="GD"></td>
+        <td><input class="track-input text-center" data-field="GT" placeholder="GT"></td>
+        <td><input class="track-input text-center" data-field="GK" placeholder="GK"></td>
+        <td><input class="track-input" data-field="remarks" placeholder="Jenis"></td>
+        <td class="text-center"><button type="button" class="text-red-500 hover:text-red-700 font-semibold" onclick="this.closest('tr').remove()">Hapus</button></td>
+    `;
+    body.appendChild(row);
 }
 
-function formatDate(date) {
-    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-    return date.toLocaleDateString('id-ID', options);
+// =========================================================
+// JALUR YANG HARUS DILALUI
+// =========================================================
+let scheduleDilaluiEditMode = false;
+
+function loadJalurDilalui() {
+    const body = document.getElementById('jalur-dilalui-table-body');
+    if (!body) return;
+    body.innerHTML = `<tr><td colspan="7" class="px-6 py-8 text-center"><i class="fas fa-spinner fa-spin text-2xl"></i><p class="mt-2 text-gray-500">Memuat data...</p></td></tr>`;
+
+    $.ajax({ url: '/passed-tracks/get', type: 'GET' })
+        .done(response => {
+            jalurDilaluiData = response || [];
+            renderJalurDilaluiTable(scheduleDilaluiEditMode);
+        })
+        .fail(xhr => {
+            ajaxError(xhr, 'Gagal memuat daftar jalur yang harus dilalui.');
+            body.innerHTML = `<tr><td colspan="7" class="px-6 py-8 text-center text-red-500">Gagal memuat data.</td></tr>`;
+        });
 }
 
-function generateTimelineMarkers() {
-    const timelineHours = document.querySelector('.timeline-hours');
-    const timelineMinutes = document.querySelector('.timeline-minutes');
-    if (!timelineHours || !timelineMinutes) return;
+function routeParts(route) {
+    const parts = String(route || '').split(/\s*[-–—]\s*/);
+    return [parts[0] || '-', parts.slice(1).join(' - ') || '-'];
+}
 
-    timelineHours.innerHTML = '';
-    timelineMinutes.innerHTML = '';
+function renderJalurDilaluiTable(isEditing = false) {
+    const body = document.getElementById('jalur-dilalui-table-body');
+    const opsi = document.getElementById('jalur-dilalui-opsi-header');
+    if (!body) return;
+    opsi?.classList.toggle('hidden', !isEditing);
 
-    for (let i = 0; i < 24; i++) {
-        const hourEl = document.createElement('div');
-        hourEl.className = 'timeline-hour';
-        hourEl.textContent = i.toString().padStart(2, '0') + ':00';
-        timelineHours.appendChild(hourEl);
+    if (!jalurDilaluiData.length) {
+        body.innerHTML = `<tr><td colspan="7" class="px-6 py-8 text-center text-gray-500">Belum ada data jalur yang harus dilalui.</td></tr>`;
+        return;
     }
 
-    for (let i = 0; i < 1440; i += 5) {
-        const minuteEl = document.createElement('div');
-        minuteEl.className = 'timeline-minute';
-        timelineMinutes.appendChild(minuteEl);
-    }
-}
+    body.innerHTML = jalurDilaluiData.map(item => {
+        const train = item.train || {};
+        const track = item.track || {};
+        const [dari, ke] = routeParts(train.route);
 
-function generateTimelineTrains() {
-    const timelineTrains = document.getElementById('timeline-trains');
-    if (!timelineTrains) return;
-
-    timelineTrains.innerHTML = '';
-
-    trainData.forEach(train => {
-        // Gunakan jam berangkat untuk posisi di timeline
-        // Lewati jika jam berangkat tidak valid (misalnya untuk KA Langsung yang belum di set)
-        if (!train.departure_time || train.departure_time === '-' || !train.departure_time.includes(':')) return;
-
-        const departureTime = train.departure_time.split(':');
-        const departureMinutes = parseInt(departureTime[0]) * 60 + parseInt(departureTime[1]);
-
-        const position = departureMinutes;
-
-        const trainEl = document.createElement('div');
-        trainEl.className = `timeline-train ${train.status}`;
-        trainEl.style.left = `${(position / 1440) * 100}%`;
-        trainEl.title = `${train.name} (${train.number}) - Datang: ${train.arrival_time}, Berangkat: ${train.departure_time}`;
-
-        trainEl.innerHTML = `
-                    <span class="train-number">${train.number}</span>
-                    <span class="train-time">${train.departure_time}</span>
-                `;
-
-        timelineTrains.appendChild(trainEl);
-    });
-
-    updateCurrentTimeLine();
-}
-
-function updateCurrentTimeLine() {
-    const now = getCurrentTimeGMT7();
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
-    const seconds = now.getSeconds();
-    const totalMinutes = hours * 60 + minutes;
-
-    const position = totalMinutes + (seconds / 60);
-
-    const timeLine = document.getElementById('timeline-now');
-    if (timeLine) {
-        timeLine.style.left = `${(position / 1440) * 100}%`;
-        timeLine.setAttribute('data-current-time', formatTimeWithSeconds(now));
-    }
-
-    const timeDisplay = document.getElementById('current-time-display');
-    if (timeDisplay) {
-        timeDisplay.textContent = `${formatDate(now)} | Waktu saat ini: ${formatTimeWithSeconds(now)} (WIB)`;
-    }
-
-    const timeline = document.querySelector('.timeline');
-    if (timeline) {
-        timeline.scrollLeft = ((position / 1440) * timeline.scrollWidth) - (timeline.clientWidth / 2);
-    }
-}
-
-function updateTrainStatus() {
-    const now = getCurrentTimeGMT7();
-    const currentTime = now.getHours() * 60 + now.getMinutes();
-
-    trainData.forEach(train => {
-        let arrivalMinutes = -1;
-        if (train.arrival_time && train.arrival_time !== '-' && train.arrival_time.includes(':')) {
-            const arrivalTime = train.arrival_time.split(':');
-            arrivalMinutes = parseInt(arrivalTime[0]) * 60 + parseInt(arrivalTime[1]);
+        if (!isEditing) {
+            return `<tr data-id="${item.id}">
+                <td class="text-center">${escapeHtml(track.track || train.track || '-')}</td>
+                <td class="text-center">${escapeHtml(train.number || '-')}</td>
+                <td class="text-center">${escapeHtml(train.arrival_time || (train.status === 'Langsung' ? 'Ls' : '-'))}</td>
+                <td class="text-center">${escapeHtml(train.departure_time || '-')}</td>
+                <td class="text-center">${escapeHtml(dari)}</td>
+                <td class="text-center">${escapeHtml(ke)}</td>
+            </tr>`;
         }
 
-        let departureMinutes = -1;
-        if (train.departure_time && train.departure_time !== '-' && train.departure_time.includes(':')) {
-            const departureTime = train.departure_time.split(':');
-            departureMinutes = parseInt(departureTime[0]) * 60 + parseInt(departureTime[1]);
-        }
+        return `<tr data-id="${item.id}">
+            <td>
+                <select class="jalur-dilalui-input jalur-track-select">
+                    <option value="">Pilih Jalur</option>
+                    ${trackData.map(t => `<option value="${t.id}" ${Number(item.track_id) === Number(t.id) ? 'selected' : ''}>${escapeHtml(t.track)}</option>`).join('')}
+                </select>
+            </td>
+            <td>
+                <select class="jalur-dilalui-input jalur-train-select">
+                    <option value="">Pilih No. KA</option>
+                    ${trainData.map(t => `<option value="${t.id}" ${Number(item.train_id) === Number(t.id) ? 'selected' : ''}>${escapeHtml(t.number)}</option>`).join('')}
+                </select>
+            </td>
+            <td class="text-center jalur-datang">${escapeHtml(train.arrival_time || (train.status === 'Langsung' ? 'Ls' : '-'))}</td>
+            <td class="text-center jalur-berangkat">${escapeHtml(train.departure_time || '-')}</td>
+            <td class="text-center jalur-dari">${escapeHtml(dari)}</td>
+            <td class="text-center jalur-ke">${escapeHtml(ke)}</td>
+            <td class="text-center"><button type="button" class="text-red-500 hover:text-red-700 font-semibold" onclick="deleteJalurDilalui(${item.id})">Hapus</button></td>
+        </tr>`;
+    }).join('');
 
-        // Jika waktu berangkat tidak valid, kita tidak bisa menentukan statusnya.
-        if (departureMinutes === -1) {
-            train.status = 'scheduled'; // Status default
-            return; // Lanjut ke kereta berikutnya
-        }
+    bindJalurTrainSelects();
+}
 
-        if (currentTime > departureMinutes) {
-            train.status = 'departed';
-        } else if (arrivalMinutes !== -1 && currentTime > arrivalMinutes && currentTime <= departureMinutes) {
-            train.status = 'arrived';
-        } else {
-            train.status = 'scheduled';
-        }
+function bindJalurTrainSelects() {
+    document.querySelectorAll('.jalur-train-select').forEach(select => {
+        select.addEventListener('change', function () {
+            const train = trainData.find(t => Number(t.id) === Number(this.value));
+            const row = this.closest('tr');
+            if (!row) return;
+            const [dari, ke] = routeParts(train?.route);
+            row.querySelector('.jalur-datang').textContent = train?.arrival_time || (train?.status === 'Langsung' ? 'Ls' : '-');
+            row.querySelector('.jalur-berangkat').textContent = train?.departure_time || '-';
+            row.querySelector('.jalur-dari').textContent = dari;
+            row.querySelector('.jalur-ke').textContent = ke;
+        });
     });
 }
 
+function toggleJalurDilaluiEditMode(isEditing) {
+    scheduleDilaluiEditMode = isEditing;
+    document.getElementById('jalur-dilalui-edit-btn')?.classList.toggle('hidden', isEditing);
+    document.getElementById('jalur-dilalui-save-btn')?.classList.toggle('hidden', !isEditing);
+    document.getElementById('jalur-dilalui-cancel-btn')?.classList.toggle('hidden', !isEditing);
+    document.getElementById('add-jalur-dilalui-row-container')?.classList.toggle('hidden', !isEditing);
+    renderJalurDilaluiTable(isEditing);
+}
+
+function collectJalurDilaluiChanges() {
+    const changes = [];
+
+    document
+        .querySelectorAll('#jalur-dilalui-table-body tr')
+        .forEach((row, index) => {
+
+            const trackSelect =
+                row.querySelector('.jalur-track-select');
+
+            const trainSelect =
+                row.querySelector('.jalur-train-select');
+
+            // Abaikan baris yang bukan baris input
+            if (!trackSelect || !trainSelect) {
+                return;
+            }
+
+            const trackId =
+                Number(trackSelect.value);
+
+            const trainId =
+                Number(trainSelect.value);
+
+            // Validasi
+            if (!trackId || !trainId) {
+                throw new Error(
+                    `Baris ${index + 1}: pilih jalur dan nomor KA.`
+                );
+            }
+
+            const rowId =
+                row.dataset.id
+                    ? Number(row.dataset.id)
+                    : null;
+
+            const old =
+                rowId
+                    ? jalurDilaluiData.find(
+                        item => Number(item.id) === rowId
+                    )
+                    : null;
 
 
-// -- End of Timeline functions ---
+            /*
+             * DATA BARU
+             *
+             * Jangan kirim id.
+             */
+            if (!rowId) {
 
-$(document).ready(function() {
-    loadTrains();
+                changes.push({
+                    track_id: trackId,
+                    train_id: trainId
+                });
+
+                return;
+            }
+
+
+            /*
+             * DATA LAMA
+             *
+             * Kirim id hanya jika memang ada perubahan.
+             */
+            if (
+                !old ||
+                Number(old.track_id) !== trackId ||
+                Number(old.train_id) !== trainId
+            ) {
+
+                changes.push({
+                    id: rowId,
+                    track_id: trackId,
+                    train_id: trainId
+                });
+            }
+
+        });
+
+    return changes;
+}
+
+function saveJalurDilaluiChanges() {
+    let changes;
+    try {
+        changes = collectJalurDilaluiChanges();
+    } catch (error) {
+        showMessage(error.message, 'error');
+        return;
+    }
+
+    if (!changes.length) {
+        toggleJalurDilaluiEditMode(false);
+        return;
+    }
+
+    $.ajax({
+        url: '/passed-tracks/save',
+        type: 'POST',
+        data: { _token: token, trainTracks: changes }
+    }).done(() => {
+        showMessage('Daftar jalur berhasil disimpan', 'success');
+        toggleJalurDilaluiEditMode(false);
+        loadJalurDilalui();
+        loadTrains();
+    }).fail(xhr => ajaxError(xhr, 'Gagal menyimpan daftar jalur.'));
+}
+
+function deleteJalurDilalui(id) {
+    if (!confirm('Hapus data jalur yang harus dilalui ini?')) return;
+    $.ajax({ url: '/passed-tracks/delete', type: 'POST', data: { _token: token, id } })
+        .done(() => loadJalurDilalui())
+        .fail(xhr => ajaxError(xhr, 'Gagal menghapus data.'));
+}
+
+function addJalurDilaluiRow() {
+    const body = document.getElementById('jalur-dilalui-table-body');
+    if (!body) return;
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td><select class="jalur-dilalui-input jalur-track-select"><option value="">Pilih Jalur</option>${trackData.map(t => `<option value="${t.id}">${escapeHtml(t.track)}</option>`).join('')}</select></td>
+        <td><select class="jalur-dilalui-input jalur-train-select"><option value="">Pilih No. KA</option>${trainData.map(t => `<option value="${t.id}">${escapeHtml(t.number)}</option>`).join('')}</select></td>
+        <td class="text-center jalur-datang">-</td>
+        <td class="text-center jalur-berangkat">-</td>
+        <td class="text-center jalur-dari">-</td>
+        <td class="text-center jalur-ke">-</td>
+        <td class="text-center"><button type="button" class="text-red-500 hover:text-red-700 font-semibold" onclick="this.closest('tr').remove()">Hapus</button></td>
+    `;
+    body.appendChild(row);
+    bindJalurTrainSelects();
+}
+
+// =========================================================
+// INITIALIZATION
+// =========================================================
+$(document).ready(function () {
+    setPerkaTab('daftar-waktu');
+    loadSchedules();
     loadTracks();
     loadJalurDilalui();
-    renderTrackValidity();
+    renderStationSelector();
 
-    generateTimelineMarkers();
+    $('#tab-daftar-waktu').on('click', () => setPerkaTab('daftar-waktu'));
+    $('#tab-jalur-emplasemen').on('click', () => setPerkaTab('jalur-emplasemen'));
+
+    $('#edit-station-btn').on('click', openStationSelector);
+    $('#close-station-modal, #cancel-station-selection').on('click', closeStationSelector);
+    $('#apply-station-selection').on('click', applyStationSelection);
+
+    $('#perka-edit-btn').on('click', () => toggleScheduleEditMode(true));
+    $('#add-train-btn').on('click', openAddTrainModal);
+    $('#close-add-train-modal, #cancel-add-train').on('click', closeAddTrainModal);
+    $('#add-train-form').on('submit', function (event) {
+        event.preventDefault();
+        addTrainFromSchedule();
+    });
+    $('#perka-save-btn').on('click', saveScheduleData);
+    $('#perka-cancel-btn').on('click', () => { toggleScheduleEditMode(false); loadSchedules(); });
+
+    $('#emplasemen-edit-btn').on('click', () => toggleEmplasemenEditMode(true));
+    $('#emplasemen-save-btn').on('click', saveEmplasemenChanges);
+    $('#emplasemen-cancel-btn').on('click', () => toggleEmplasemenEditMode(false));
+    $('#emplasemen-upload').on('change', function () { previewEmplasemen(this.files[0]); });
+
+    $('#jalur-edit-btn').on('click', () => toggleJalurEditMode(true));
+    $('#jalur-save-btn').on('click', saveJalurChanges);
+    $('#jalur-cancel-btn').on('click', () => toggleJalurEditMode(false));
+    $('#add-jalur-row-btn').on('click', addJalurRow);
+
+    $('#jalur-dilalui-edit-btn').on('click', () => toggleJalurDilaluiEditMode(true));
+    $('#jalur-dilalui-save-btn').on('click', saveJalurDilaluiChanges);
+    $('#jalur-dilalui-cancel-btn').on('click', () => toggleJalurDilaluiEditMode(false));
+    $('#add-jalur-dilalui-row-btn').on('click', addJalurDilaluiRow);
 });
-
-const searchInput = document.getElementById('search-train');
-if (searchInput) searchInput.addEventListener('input', filterTrains);
-
-const perkaEditBtn = document.getElementById('perka-edit-btn');
-const perkaSaveBtn = document.getElementById('perka-save-btn');
-const perkaCancelBtn = document.getElementById('perka-cancel-btn');
-const addPerkaRowBtn = document.getElementById('add-perka-row-btn');
-
-if (perkaEditBtn) perkaEditBtn.addEventListener('click', () => togglePerkaEditMode(true));
-if (perkaSaveBtn) perkaSaveBtn.addEventListener('click', savePerkaChanges);
-if (perkaCancelBtn) perkaCancelBtn.addEventListener('click', () => togglePerkaEditMode(false));
-if (addPerkaRowBtn) addPerkaRowBtn.addEventListener('click', addPerkaRow);
-
-const emplasemenEditBtn = document.getElementById('emplasemen-edit-btn');
-const emplasemenSaveBtn = document.getElementById('emplasemen-save-btn');
-const emplasemenCancelBtn = document.getElementById('emplasemen-cancel-btn');
-
-if (emplasemenEditBtn) emplasemenEditBtn.addEventListener('click', () => toggleEmplasemenEditMode(true));
-if (emplasemenSaveBtn) emplasemenSaveBtn.addEventListener('click', saveEmplasemenChanges);
-if (emplasemenCancelBtn) emplasemenCancelBtn.addEventListener('click', () => toggleEmplasemenEditMode(false));
-
-const fileInput = document.getElementById('emplasemen-upload');
-const preview = document.getElementById('emplasemen-image-preview');
-
-document.getElementById('emplasemen-upload').addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    const container = document.getElementById('emplasemen-preview-container');
-
-    if (!file) return;
-
-    const fileType = file.type;
-
-    if (fileType.includes('image')) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            container.innerHTML = `<img src="${e.target.result}" class="w-full h-auto rounded-lg mb-4 object-contain">`;
-        };
-        reader.readAsDataURL(file);
-    } else if (fileType === 'application/pdf') {
-        const fileURL = URL.createObjectURL(file);
-        container.innerHTML = `<iframe src="${fileURL}" width="100%" height="400px" class="rounded-lg mb-4"></iframe>`;
-    }
-});
-
-const jalurEditBtn = document.getElementById('jalur-edit-btn');
-const jalurSaveBtn = document.getElementById('jalur-save-btn');
-const jalurCancelBtn = document.getElementById('jalur-cancel-btn');
-const addJalurRowBtn = document.getElementById('add-jalur-row-btn');
-
-if (jalurEditBtn) jalurEditBtn.addEventListener('click', () => toggleJalurEditMode(true));
-if (jalurSaveBtn) jalurSaveBtn.addEventListener('click', saveJalurChanges);
-if (jalurCancelBtn) jalurCancelBtn.addEventListener('click', () => toggleJalurEditMode(false));
-if (addJalurRowBtn) addJalurRowBtn.addEventListener('click', addJalurRow);
-
-const jalurDilaluiEditBtn = document.getElementById('jalur-dilalui-edit-btn');
-const jalurDilaluiSaveBtn = document.getElementById('jalur-dilalui-save-btn');
-const jalurDilaluiCancelBtn = document.getElementById('jalur-dilalui-cancel-btn');
-const addJalurDilaluiRowBtn = document.getElementById('add-jalur-dilalui-row-btn');
-
-if (jalurDilaluiEditBtn) jalurDilaluiEditBtn.addEventListener('click', () => toggleJalurDilaluiEditMode(true));
-if (jalurDilaluiSaveBtn) jalurDilaluiSaveBtn.addEventListener('click', saveJalurDilaluiChanges);
-if (jalurDilaluiCancelBtn) jalurDilaluiCancelBtn.addEventListener('click', () => toggleJalurDilaluiEditMode(false));
-if (addJalurDilaluiRowBtn) addJalurDilaluiRowBtn.addEventListener('click', addJalurDilaluiRow);
-
-timelineInterval = setInterval(updateCurrentTimeLine, 1000);
-trainUpdateInterval = setInterval(() => {
-    updateTrainStatus();
-}, 60000);

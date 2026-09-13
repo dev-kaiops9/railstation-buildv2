@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Station;
 use App\Models\DutyShift;
 use App\Models\DutyRoster;
+use App\Models\OperationalDisruption;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -18,6 +19,7 @@ class DashboardController extends Controller
         $station = $this->checkStation();
         $totalEmployees = $station->employees()->count();
         $totalTrains = $station->trains()->count();
+        $activeDisruptions = OperationalDisruption::where('station_id', $station->id)->count();
 
         $today = now()->day;
         $currentMonth = now()->month;
@@ -107,6 +109,7 @@ class DashboardController extends Controller
             'station',
             'totalEmployees',
             'totalTrains',
+            'activeDisruptions',
             'employees',
             'activeShift',
             'weather'

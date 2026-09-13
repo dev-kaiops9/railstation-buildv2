@@ -16,4 +16,9 @@ class Train extends Model
         'track',
         'status'
     ];
+
+    public function schedules()
+    {
+        return $this->hasMany(TrainSchedule::class);
+    }
 }

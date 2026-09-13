@@ -138,9 +138,9 @@ class DutyRosterManager {
         `;
 
         const html = `
-            <div class="overflow-x-auto border border-gray-300 rounded-lg">
-                <table class="min-w-full border-collapse border border-gray-300">
-                    <thead class="sticky top-0 z-20 bg-blue-600">
+            <div class="w-full overflow-x-auto rounded-xl border border-gray-200 shadow-sm bg-white">
+                <table class="min-w-full border-collapse">
+                    <thead class="sticky top-0 z-20">
                         <tr class="bg-blue-600 text-white">
                             <th class="border border-gray-300 px-3 py-2 text-left bg-blue-600 sticky left-0 z-30 text-sm min-w-[150px]">Nama</th>
                             <th class="border border-gray-300 px-3 py-2 text-left z-30 text-sm ">NIPP</th>
@@ -197,8 +197,11 @@ class DutyRosterManager {
             `;
         } else {
             return `
-                <button id="duty-roster-edit-btn" class="bg-blue-500 text-white font-semibold py-2 px-4 rounded-full shadow-md hover:bg-blue-600 transition-colors duration-300">
-                    Edit Data
+                <button id="duty-roster-edit-btn"
+                    class="bg-blue-500 text-white font-semibold py-2 px-4 rounded-full shadow-md hover:bg-blue-600 transition-colors duration-300">
+                    <i class="fas fa-edit"></i>
+                        Edit Data
+
                 </button>
             `;
         }

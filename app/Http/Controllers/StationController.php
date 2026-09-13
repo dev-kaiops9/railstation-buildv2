@@ -59,23 +59,37 @@ class StationController extends Controller
 
     public function updateEmplasemen(Request $request)
     {
-        if (!$request->hasFile('file')) {
-            return response()->json(['error' => 'File tidak ada'], 400);
+        if (!$this->checkUserAccess()) {
+            return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        $station = $this->station; // ✅ FIX DISINI
+        $request->validate([
+            'file' => 'required|file|mimes:jpg,jpeg,png,pdf|max:10240',
+        ]);
 
+        $station = $this->station;
         if (!$station) {
-            return response()->json(['error' => 'Station tidak ditemukan'], 500);
+            return response()->json(['message' => 'Station tidak ditemukan'], 404);
         }
 
-        $file = $request->file('file');
-        $path = $file->store('emplasemen', 'public');
+        // Remove the previous file when it is stored on the public disk.
+        if ($station->emplasemen) {
+            $oldPath = $station->emplasemen;
+            if (str_starts_with($oldPath, 'storage/')) {
+                $oldPath = substr($oldPath, strlen('storage/'));
+            }
+            if (Storage::disk('public')->exists($oldPath)) {
+                Storage::disk('public')->delete($oldPath);
+            }
+        }
 
-        $station->emplasemen = 'storage/' . $path;
-        $station->save();
+        $path = $request->file('file')->store('emplasemen', 'public');
+        $station->update(['emplasemen' => 'storage/' . $path]);
 
-        return response()->json(['success' => true]);
+        return response()->json([
+            'success' => true,
+            'path' => asset('storage/' . $path),
+        ]);
     }
 
     public function updateTrackValidity(Request $request)

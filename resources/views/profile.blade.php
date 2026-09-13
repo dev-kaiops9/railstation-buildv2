@@ -1,9 +1,9 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="bg-white rounded-xl shadow-md p-6 mb-8">
-    <div class="flex justify-between items-center mb-4">
-        <h1 class="text-2xl font-bold text-gray-900">Profil Stasiun</h1>
+<div class="profile-interface">
+    <div class="section-head profile-section-head">
+        <h3>Identitas Stasiun</h3>
         @if(auth()->user()->role != 'station_master' || (auth()->user()->role == 'station_master' &&
         auth()->user()->station_id == $station->id))
         <div id="profil-edit-buttons-container" class="flex space-x-2">
@@ -17,6 +17,7 @@
         </div>
         @endif
     </div>
+    <div class="bg-white rounded-xl shadow-md p-6 mb-8">
 
     <div id="profil-view-mode">
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -196,56 +197,8 @@
         </div>
     </div>
 </div>
-
-<!-- Section Baru: Kereta Api yang Berhenti -->
-<div class="bg-white rounded-xl shadow-md p-6 mt-8">
-    <div class="flex justify-between items-center mb-4">
-        <h2 class="text-xl font-bold text-gray-900">Kereta Api yang Berhenti</h2>
-        @if(auth()->user()->role != 'station_master' || (auth()->user()->role == 'station_master' &&
-        auth()->user()->station_id == $station->id))
-        <div id="train-edit-buttons-container" class="flex space-x-2">
-            <a href="{{ route('train') }}"
-                class="bg-blue-500 text-white font-semibold py-2 px-4 rounded-full shadow-md hover:bg-blue-600 transition-colors duration-300">Edit
-                Data</a>
-        </div>
-        @endif
-    </div>
-
-    <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        No. KA</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Nama KA</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Rute</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Jam Datang</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Jam Berangkat</th>
-                </tr>
-            </thead>
-            <tbody class="bg-white divide-y divide-gray-200" id="stopping-trains-table-body">
-                @foreach ($stoppingTrains as $train)
-                <tr>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ $train->number }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ $train->name }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ $train->route }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ $train->arrival_time }}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ $train->departure_time }}</td>
-                </tr>
-                @endforeach
-            </tbody>
-        </table>
-    </div>
-    <div id="add-train-row-container" class="mt-4 text-center hidden">
-        <button id="add-train-row-btn"
-            class="bg-blue-500 text-white font-semibold py-2 px-6 rounded-full shadow-md hover:bg-blue-600 transition-colors duration-300">Tambah
-            Baris</button>
-    </div>
 </div>
+
 @endsection
 
 @push('scripts')

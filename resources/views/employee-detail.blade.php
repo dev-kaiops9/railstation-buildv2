@@ -36,6 +36,7 @@
                     <p><strong>Jenis Kelamin:</strong> {{ $employee->gender }}</p>
                     <p><strong>Tanggal Lahir:</strong> {{ $employee->dob }}</p>
                     <p><strong>Unit:</strong> {{ $employee->unit }}</p>
+                    <p><strong>Grade:</strong> {{ $employee->grade ?? '-' }}</p>
                     <p><strong>Stasiun:</strong> {{ $employee->station->name }}</p>
                 </div>
             </div>
@@ -113,6 +114,11 @@
                 <div>
                     <label for="edit-unit" class="block text-sm font-bold text-gray-700">Unit:</label>
                     <input type="text" id="edit-unit" value="{{ $employee->unit }}"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div>
+                    <label for="edit-grade" class="block text-sm font-bold text-gray-700">Grade:</label>
+                    <input type="text" id="edit-grade" value="{{ $employee->grade }}"
                         class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
                 </div>
                 <div>

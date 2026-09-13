@@ -45,7 +45,16 @@ class TrackController extends Controller
         $tracks = [];
         foreach ($request->tracks as $trackData) {
             $trackData['station_id'] = $this->station->id;
-            $tracks[] = Track::updateOrCreate(['id' => $trackData['id']], $trackData);
+            $id = $trackData['id'] ?? null;
+
+            if ($id) {
+                $tracks[] = Track::updateOrCreate(
+                    ['id' => $id],
+                    $trackData
+                );
+            } else {
+                $tracks[] = Track::create($trackData);
+            }
         }
 
         return response()->json($tracks);

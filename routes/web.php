@@ -70,6 +70,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/shifts/delete', [DutyShiftController::class, 'destroy'])->name('shifts.destroy');
 
     Route::get('/train', [TrainController::class, 'index'])->name('train');
+    Route::get('/train/schedules', [TrainController::class, 'getSchedules']);
+    Route::post('/train/schedules/save', [TrainController::class, 'saveSchedules']);
     Route::get('/train/get', [TrainController::class, 'get'])->name('train.get');
     Route::post('/train/save', [TrainController::class, 'store'])->name('train.store');
     Route::post('/train/delete', [TrainController::class, 'destroy'])->name('train.destroy');

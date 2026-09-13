@@ -1,26 +1,19 @@
 @extends('layouts.app')
 
 @section('content')
-<div id="pegawai-list-view">
+<div id="pegawai-list-view" data-section="{{ request('section', 'employee') }}">
+    <div class="tabs employee-tabs" aria-label="Menu data pegawai">
+        <a href="{{ route('employee') }}" class="tab-btn {{ request('section', 'employee') === 'employee' ? 'active' : '' }}"><span class="tab-icon"><i class="fas fa-users"></i></span><span class="tab-copy"><span class="tab-title">Pegawai</span><span class="tab-desc">Data pegawai stasiun</span></span></a>
+        <a href="{{ route('employee', ['section' => 'duty']) }}" class="tab-btn {{ request('section') === 'duty' ? 'active' : '' }}"><span class="tab-icon"><i class="fas fa-clock"></i></span><span class="tab-copy"><span class="tab-title">Jadwal Dinas</span><span class="tab-desc">Jadwal shift dan dinas pegawai</span></span></a>
+        <a href="{{ route('employee', ['section' => 'certification']) }}" class="tab-btn {{ request('section') === 'certification' ? 'active' : '' }}"><span class="tab-icon"><i class="fas fa-award"></i></span><span class="tab-copy"><span class="tab-title">Sertifikasi & Kecakapan</span><span class="tab-desc">Sertifikat dan kompetensi pegawai</span></span></a>
+        <a href="{{ route('employee', ['section' => 'ijk']) }}" class="tab-btn {{ request('section') === 'ijk' ? 'active' : '' }}"><span class="tab-icon"><i class="fas fa-clipboard"></i></span><span class="tab-copy"><span class="tab-title">IJK & Kebutuhan Pegawai</span><span class="tab-desc">Ikhtisar jam kerja dan kebutuhan pegawai</span></span></a>
+    </div>
     <div class="bg-white rounded-xl shadow-md p-6 mb-8">
-        <div class="flex justify-between items-center mb-4">
+        <div class="flex justify-between items-center mb-4 employee-section-title">
             <h1 class="text-2xl font-bold text-gray-900">Data Pegawai</h1>
         </div>
         <p class="text-gray-700">Ini adalah halaman data pegawai. Di sini Anda bisa mengelola daftar pegawai.</p>
-
-        <!-- Card Grid untuk Ringkasan Pegawai -->
-        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 my-4" id="position-cards">
-            <div class="bg-white rounded-xl shadow-md p-4 text-center">
-                <div class="inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50">
-                    <div class="text-center">
-                        <i class="fas fa-spinner fa-spin text-3xl text-blue-500 mb-2"></i>
-                        <p class="text-gray-600">Memuat data...</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="bg-white rounded-xl shadow-md p-6">
+        <div id="employee-table-section" class="bg-white rounded-xl shadow-md p-6">
             @if(auth()->user()->role != 'station_master' || (auth()->user()->role == 'station_master' &&
             auth()->user()->station_id == $station->id))
             <div class="flex justify-end">
@@ -41,15 +34,15 @@
                     <thead class="bg-blue-600 text-white">
                         <tr>
                             <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">
-                                Nama</th>
+                                Foto</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Nama</th>
                             <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">
                                 NIPP</th>
                             <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">
                                 Jabatan</th>
                             <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">
-                                Unit</th>
-                            <th id="options-header" scope="col"
-                                class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider hidden">Opsi
+                                Unit</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider">Grade</th>
+                            <th id="options-header" scope="col" class="px-3 py-2.5 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                Opsi
                             </th>
                         </tr>
                     </thead>
@@ -65,83 +58,219 @@
                     Pegawai</button>
             </div>
 
-            <x-pagination :paginationId="'employee'" />
+                <x-pagination :paginationId="'employee'" />
+            </div>
+        </div>
+        
+        <!-- Bagian Jadwal Dinas -->
+        <div
+            id="duty-roster-view"
+            class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 md:p-8 mt-10 mb-8 mx-2 md:mx-4 w-auto">
+
+        <!-- Header Jadwal Dinas -->
+        <div class="flex justify-between items-start gap-4 mb-6 duty-roster-header">
+
+        <div>
+            <h2 class="text-2xl md:text-3xl font-bold text-gray-900">
+                Daftar Dinasan
+            </h2>
+
+            <p class="text-sm text-gray-500 mt-1">
+                Jadwal dinas pegawai berdasarkan bulan
+            </p>
         </div>
 
-        <div class="bg-white rounded-xl shadow-md p-6 mt-12 mb-8 w-full" id="duty-roster-view">
-            <div class="flex justify-between items-center mb-2">
-                <div class="flex items-center space-x-4">
-                    <h2 class="text-2xl font-bold text-gray-900">Daftar Dinasan</h2>
-                </div>
-                @if(auth()->user()->role != 'station_master' || (auth()->user()->role == 'station_master' &&
+            @if(auth()->user()->role != 'station_master' ||
+                (auth()->user()->role == 'station_master' &&
                 auth()->user()->station_id == $station->id))
-                <div id="duty-roster-action-buttons" class="flex space-x-2"></div>
-                @endif
-            </div>
-            <div id="duty-roster-filter" class="mb-4"></div>
 
-            <div id="duty-roster-container" class="relative">
-                <!-- Content loaded by JavaScript -->
-            </div>
+                <div id="duty-roster-action-buttons"
+                    class="flex-shrink-0">
+                </div>
 
-            <div id="duty-roster-pagination" class="mt-6"></div>
+            @endif
+
         </div>
+
+        <!-- Filter Bulan & Tahun -->
+        <div
+            id="duty-roster-filter"
+            class="mb-6 flex justify-center md:justify-start">
+        </div>
+
+        <!-- Tabel Daftar Dinasan -->
+        <div
+            id="duty-roster-container"
+            class="relative w-full overflow-x-auto">
+        </div>
+
+        <!-- Pagination -->
+        <div
+            id="duty-roster-pagination"
+            class="mt-6">
+        </div>
+    </div>
 
         <!-- Bagian Sertifikasi dan Tanda Kecakapan -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-12">
-            <!-- Kartu Data Sertifikasi -->
-            <div class="bg-white rounded-xl shadow-md p-6">
-                <h2 class="text-xl font-bold text-gray-900 mb-4 text-center">Data Sertifikasi</h2>
-                <div class="flex flex-col items-center justify-center">
-                    <div class="chart-circle"
-                        style="background-image: conic-gradient(#22C55E 0% {{ $certificationStatus['percentage'] }}%, #EF4444 {{ $certificationStatus['percentage'] }}% 100%);">                        <span class="chart-text">{{ $certificationStatus['percentage'] }}%</span>
-                    </div>
-                    <div class="flex justify-center space-x-8 mt-4">
-    
-                        <div class="flex items-center space-x-2">
-                            <span class="w-3 h-3 bg-green-500 rounded-sm"></span>
-                            <p class="text-gray-700 text-sm">Aktif</p>
-                            <p class="text-gray-900 text-lg font-bold">{{ $certificationStatus['Aktif'] }}</p>
-                        </div>
+        <div id="certification-section"
+            class="bg-white rounded-2xl shadow-md border border-gray-100 p-6 md:p-8 mt-10 mb-8 mx-2 md:mx-4">
 
-                        <div class="flex items-center space-x-2">
-                            <span class="w-3 h-3 bg-red-500 rounded-sm"></span>
-                            <p class="text-gray-700 text-sm">Nonaktif</p>
-                            <p class="text-gray-900 text-lg font-bold">{{ $certificationStatus['Nonaktif'] }}</p>
-                        </div>
+        <!-- HEADER -->
+        <div class="mb-8">
+            <h2 class="text-xl md:text-2xl font-semibold text-gray-900">
+                Sertifikasi & Kecakapan
+            </h2>
 
-                    </div>
-                </div>
-            </div>
-
-            <!-- Kartu Data Tanda Kecakapan -->
-            <div class="bg-white rounded-xl shadow-md p-6">
-                <h2 class="text-xl font-bold text-gray-900 mb-4 text-center">Data Tanda Kecakapan</h2>
-                <div class="flex flex-col items-center justify-center">
-                    <div class="chart-circle"
-                        style="background-image: conic-gradient(#22C55E 0% {{ $certificationStatus['percentage'] }}%, #EF4444 {{ $certificationStatus['percentage'] }}% 100%);">                        <span class="chart-text">{{ $skillStatus['percentage'] }}%</span>
-                    </div>
-                    <div class="flex justify-center space-x-8 mt-4">
-    
-                        <div class="flex items-center space-x-2">
-                            <span class="w-3 h-3 bg-green-500 rounded-sm"></span>
-                            <p class="text-gray-700 text-sm">Aktif</p>
-                            <p class="text-gray-900 text-lg font-bold">{{ $skillStatus['Aktif'] }}</p>
-                        </div>
-
-                        <div class="flex items-center space-x-2">
-                            <span class="w-3 h-3 bg-red-500 rounded-sm"></span>
-                            <p class="text-gray-700 text-sm">Nonaktif</p>
-                            <p class="text-gray-900 text-lg font-bold">{{ $skillStatus['Nonaktif'] }}</p>
-                        </div>
-
-                    </div>
-                </div>
-            </div>
+            <p class="text-xs text-gray-500 mt-1">
+                Data sertifikasi dan tanda kecakapan pegawai
+            </p>
         </div>
 
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div class="bg-gray-50 rounded-2xl border border-gray-200 p-5">
+
+            <!-- HEADER CONTAINER -->
+            <div class="flex justify-between items-center mb-5 gap-3">
+
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-800 flex items-center gap-2">Sertifikasi</h3>
+                    <p class="text-xs text-gray-500 mt-1">
+                        Data sertifikasi pegawai
+                    </p>
+                </div>
+
+                <button
+                    type="button"
+                    id="add-certification-btn"
+                    class="bg-blue-500 text-white font-semibold py-2 px-4 rounded-full shadow-md hover:bg-blue-600 transition-colors duration-300 whitespace-nowrap">
+                    + Tambah
+                </button>
+
+            </div>
+
+
+            <!-- TABLE -->
+            <div class="overflow-x-auto bg-white border border-gray-200 rounded-xl">
+
+                <table class="min-w-full">
+
+                    <thead class="bg-gray-100">
+
+                        <tr>
+
+                            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                Foto
+                            </th>
+
+                            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                Nama
+                            </th>
+
+                            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                Jenis
+                            </th>
+
+                            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                Nomor
+                            </th>
+
+                            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                Berlaku
+                            </th>
+
+                            <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                                Status
+                            </th>
+
+                        </tr>
+
+                    </thead>
+
+                    <tbody id="certification-table-body"
+                           class="divide-y divide-gray-100">
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+        <div class="bg-gray-50 rounded-2xl border border-gray-200 p-5">
+
+            <!-- HEADER CONTAINER -->
+            <div class="flex justify-between items-center mb-5 gap-3">
+
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-800 flex items-center gap-2">Kecakapan</h3>
+                    <p class="text-xs text-gray-500 mt-1">
+                        Data tanda kecakapan pegawai
+                    </p>
+                </div>
+
+                <button
+                    type="button"
+                    id="add-skill-btn"
+                    class="bg-blue-500 text-white font-semibold py-2 px-4 rounded-full shadow-md hover:bg-blue-600 transition-colors duration-300 whitespace-nowrap">
+                    + Tambah
+                </button>
+
+            </div>
+
+
+            <!-- TABLE -->
+            <div class="overflow-x-auto bg-white border border-gray-200 rounded-xl">
+
+                <table class="min-w-full">
+
+                    <thead class="bg-gray-100">
+
+                        <tr>
+
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">
+                                Foto
+                            </th>
+
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">
+                                Nama
+                            </th>
+
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">
+                                Jenis
+                            </th>
+
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">
+                                Nomor
+                            </th>
+
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">
+                                Berlaku
+                            </th>
+
+                            <th class="px-4 py-3 text-left text-sm font-semibold text-gray-600">
+                                Status
+                            </th>
+
+                        </tr>
+
+                    </thead>
+
+                    <tbody id="skill-table-body"
+                           class="divide-y divide-gray-100">
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
         <!-- Tabel Kebutuhan dan Jam Kerja -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-12">
+        <div id="ijk-section" class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-12">
             <!-- Tabel Kebutuhan Pegawai -->
             <div class="bg-white rounded-xl shadow-md p-6">
                 <div class="flex justify-between items-center mb-4">
@@ -298,3 +427,7 @@
 <script src="{{ asset('assets/js/duty-roster.js') }}"></script>
 <script src="{{ asset('assets/js/employee.js') }}"></script>
 @endpush
+
+
+
+

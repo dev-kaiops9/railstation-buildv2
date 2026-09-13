@@ -67,6 +67,7 @@ async function saveEmployeeChanges() {
         gender: document.getElementById('edit-gender').value,
         dob: document.getElementById('edit-dob').value,
         unit: document.getElementById('edit-unit').value,
+        grade: document.getElementById('edit-grade').value,
         station_id: document.getElementById('edit-station').value,
         cert_type: document.getElementById('edit-cert-type').value,
         cert_number: document.getElementById('edit-cert-number').value,
