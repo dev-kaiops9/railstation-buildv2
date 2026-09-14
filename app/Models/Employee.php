@@ -13,6 +13,7 @@ class Employee extends Model
         'nipp',
         'position',
         'unit',
+        'grade',
         'gender',
         'dob',
         'photo_url',

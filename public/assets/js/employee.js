@@ -1,4 +1,9 @@
 let positionData = [];
+
+function getEmployeePhotoUrl(employee) {
+    if (!employee.photo_url) return 'https://placehold.co/80x80/E8ECF5/65708A?text=Foto';
+    return employee.photo_url.startsWith('http') ? employee.photo_url : `/storage/${employee.photo_url}`;
+}
 let jamKerjaData = [];
 let kebutuhanData = [];
 let employees = [];
@@ -58,8 +63,7 @@ function loadEmployees(page = 1) {
     if (tableBody) {
         tableBody.innerHTML = `
             <tr>
-                <td colspan="5" class="px-6 py-4">
-                    <div class="inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50 my-4">
+                <td colspan="7" class="px-6 py-4"><div class="inset-0 bg-white bg-opacity-75 flex items-center justify-center z-50 my-4">
                         <div class="text-center">
                             <i class="fas fa-spinner fa-spin text-3xl text-blue-500 mb-2"></i>
                             <p class="text-gray-600">Memuat data...</p>
@@ -79,6 +83,10 @@ function loadEmployees(page = 1) {
             currentPage = response.current_page;
 
             renderMainEmployeeTable(false);
+
+            renderCertificationTable();
+            renderSkillTable();
+
             dutyRosterManager.loadDutyRoster();
             paginationHelper.render(response, (page) => loadEmployees(page));
         },
@@ -86,7 +94,7 @@ function loadEmployees(page = 1) {
             if (tableBody) {
                 tableBody.innerHTML = `
                     <tr>
-                        <td colspan="5" class="px-6 py-4 text-center text-sm text-red-500">
+                        <td colspan="7" class="px-6 py-4 text-center text-sm text-red-500">
                             Gagal memuat data
                         </td>
                     </tr>
@@ -102,13 +110,35 @@ function saveNewEmployees(employees) {
         type: "POST",
         data: {
             _token: token,
-            employees,
+            employees: employees
         },
         success: function (response) {
+            console.log("Data pegawai berhasil disimpan:", response);
+
             loadEmployees(currentPage);
-            loadPositions(); // update card total
-            dutyRosterManager.loadDutyRoster(); // update daftar dinasan
+            dutyRosterManager.loadDutyRoster();
+
+            toggleMainEmployeeEditMode(false);
+
+            showMessage("Data pegawai berhasil disimpan", "success");
         },
+        error: function (xhr) {
+            console.error("Gagal menyimpan data pegawai:", xhr);
+
+            let message = "Gagal menyimpan data pegawai";
+
+            if (xhr.responseJSON) {
+                if (xhr.responseJSON.message) {
+                    message = xhr.responseJSON.message;
+                }
+
+                if (xhr.responseJSON.errors) {
+                    console.error("Validation errors:", xhr.responseJSON.errors);
+                }
+            }
+
+            showMessage(message, "error");
+        }
     });
 }
 
@@ -121,7 +151,6 @@ function deleteEmployee(id) {
         data: { _token: token, id: id },
         success: function (response) {
             employees = employees.filter((employee) => employee.id !== id);
-            loadPositions()
             renderMainEmployeeTable(true);
         },
         error: function (error) {
@@ -141,7 +170,6 @@ function moveEmployee(employeeId, newStation) {
         },
         success: function (response) {
             employees = employees.filter((employee) => employee.id !== employeeId);
-            loadPositions();
             loadEmployees(currentPage);
             dutyRosterManager.loadDutyRoster();
         },
@@ -157,17 +185,12 @@ function renderMainEmployeeTable(isEditing = false) {
     if (!tableBody || !optionsHeader) return;
 
     tableBody.innerHTML = "";
-
-    if (isEditing) {
-        optionsHeader.classList.remove("hidden");
-    } else {
-        optionsHeader.classList.add("hidden");
-    }
+    optionsHeader.classList.remove("hidden");
 
     if (employees.length === 0 && !isEditing) {
         const row = document.createElement("tr");
         row.innerHTML = `
-            <td colspan="5" class="px-6 py-4 text-center text-sm text-gray-500">
+            <td colspan="7" class="px-6 py-4 text-center text-sm text-gray-500">
                 Data tidak ditemukan
             </td>
         `;
@@ -179,30 +202,234 @@ function renderMainEmployeeTable(isEditing = false) {
 
             if (isEditing) {
                 row.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm editable-table" value="${employee.name}" data-field="name"></td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><img src="${getEmployeePhotoUrl(employee)}" alt="Foto ${employee.name}" class="w-9 h-9 rounded-full object-cover"></td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm editable-table" value="${employee.name}" data-field="name"></td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm editable-table" value="${employee.nipp}" data-field="nipp"></td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm editable-table" value="${employee.position}" data-field="position"></td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm editable-table" value="${employee.unit}" data-field="unit"></td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm editable-table" value="${employee.unit}" data-field="unit"></td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm editable-table" value="${employee.grade || ''}" data-field="grade" placeholder="Grade"></td>
+                    <td class="px-3 py-2 text-center">
+                        <button
+                            type="button"
+                            class="employee-detail-btn bg-blue-500 text-white text-xs font-medium px-3 py-1.5 rounded-full hover:bg-blue-600 transition" data-employee-id="${employee.id}"> Detail
+                        </button>
+                    </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <button class="text-blue-500 hover:text-blue-700 font-semibold" onclick="openMoveEmployeeModal(${employee.id})">Pindahkan</button>
                         <button class="text-red-500 hover:text-red-700 font-semibold ml-2" onclick="deleteEmployee(${employee.id})">Hapus</button>
                     </td>
                 `;
             } else {
-                row.classList.add("cursor-pointer", "hover:bg-gray-100");
                 row.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${employee.name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><img src="${getEmployeePhotoUrl(employee)}" alt="Foto ${employee.name}" class="w-9 h-9 rounded-full object-cover"></td><td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${employee.name}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${employee.nipp}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${employee.position}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${employee.unit}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${employee.grade || '-'}</td>
+                    <td class="px-3 py-2 text-center">
+                        <button
+                            type="button"
+                            class="employee-detail-btn bg-blue-500 text-white text-xs font-medium px-3 py-1.5 rounded-full hover:bg-blue-600 transition"
+                            data-employee-id="${employee.id}">
+                            Detail
+                        </button>
+                    </td>
                 `;
-                row.addEventListener("click", () => {
-                    window.location.href = `/employee/${employee.id}`;
-                });
             }
             tableBody.appendChild(row);
+            const detailButton = row.querySelector('.employee-detail-btn');
+
+            if (detailButton) {
+                detailButton.addEventListener('click', function (event) {
+                    event.stopPropagation();
+
+                    const employeeId = this.dataset.employeeId;
+
+                    if (employeeId) {
+                        window.location.href = `/employee/${employeeId}`;
+                    }
+                });
+            }
         });
     }
+}
+
+function renderCertificationTable() {
+    const tbody = document.getElementById('certification-table-body');
+
+    if (!tbody) return;
+
+    const certificationEmployees = employees.filter(employee =>
+        employee.cert_type ||
+        employee.cert_number ||
+        employee.cert_expiry
+    );
+
+    if (certificationEmployees.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="px-4 py-8 text-center text-gray-500">
+                    Belum ada data sertifikasi.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = certificationEmployees.map(employee => {
+
+        const photoUrl = getEmployeePhotoUrl(employee);
+
+        const status = employee.cert_status || '-';
+
+        let statusClass = 'bg-gray-100 text-gray-600';
+
+        if (status === 'Aktif') {
+            statusClass = 'bg-green-100 text-green-700';
+        } else if (status === 'Tidak Aktif' || status === 'Kadaluarsa') {
+            statusClass = 'bg-red-100 text-red-700';
+        }
+
+        return `
+            <tr
+                class="certification-row cursor-pointer hover:bg-blue-50 transition-colors"
+                data-employee-id="${employee.id}">
+
+                <td class="px-3 py-2">
+                    <img
+                        src="${photoUrl}"
+                        alt="Foto ${employee.name}"
+                        class="w-10 h-10 rounded-full object-cover border border-gray-200">
+                </td>
+
+                <td class="px-3 py-2">
+                    <div class="text-xs font-medium text-gray-800">
+                        ${employee.name || '-'}
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        ${employee.nipp || '-'}
+                    </div>
+                </td>
+
+                <td class="px-3 py-2 text-xs text-gray-600">
+                    ${employee.cert_type || '-'}
+                </td>
+
+                <td class="px-3 py-2 text-xs text-gray-600">
+                    ${employee.cert_number || '-'}
+                </td>
+
+                <td class="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">
+                    ${employee.cert_expiry || '-'}
+                </td>
+
+                <td class="px-3 py-2">
+                    <span class="inline-flex px-3 py-1 rounded-full text-xs font-semibold ${statusClass}">
+                        ${status}
+                    </span>
+                </td>
+
+            </tr>
+        `;
+    }).join('');
+
+    tbody.querySelectorAll('.certification-row').forEach(row => {
+        row.addEventListener('click', function () {
+            const employeeId = this.dataset.employeeId;
+
+            if (employeeId) {
+                window.location.href = `/employee/${employeeId}`;
+            }
+        });
+    });
+}
+
+function renderSkillTable() {
+    const tbody = document.getElementById('skill-table-body');
+
+    if (!tbody) return;
+
+    const skillEmployees = employees.filter(employee =>
+        employee.skill_type ||
+        employee.skill_number ||
+        employee.skill_expiry
+    );
+
+    if (skillEmployees.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="px-4 py-8 text-center text-gray-500">
+                    Belum ada data kecakapan.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = skillEmployees.map(employee => {
+
+        const photoUrl = getEmployeePhotoUrl(employee);
+
+        const status = employee.skill_status || '-';
+
+        let statusClass = 'bg-gray-100 text-gray-600';
+
+        if (status === 'Aktif') {
+            statusClass = 'bg-green-100 text-green-700';
+        } else if (status === 'Tidak Aktif' || status === 'Kadaluarsa') {
+            statusClass = 'bg-red-100 text-red-700';
+        }
+
+        return `
+            <tr
+                class="skill-row cursor-pointer hover:bg-blue-50 transition-colors"
+                data-employee-id="${employee.id}">
+
+                <td class="px-3 py-2">
+                    <img
+                        src="${photoUrl}"
+                        alt="Foto ${employee.name}"
+                        class="w-8 h-8 rounded-full object-cover border border-gray-200">
+                </td>
+
+                <td class="px-3 py-2">
+                    <div class="text-xs font-medium text-gray-800">
+                        ${employee.name || '-'}
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        ${employee.nipp || '-'}
+                    </div>
+                </td>
+
+                <td class="px-3 py-2 text-xs text-gray-600">
+                    ${employee.skill_type || '-'}
+                </td>
+
+                <td class="px-3 py-2 text-xs text-gray-600">
+                    ${employee.skill_number || '-'}
+                </td>
+
+                <td class="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">
+                    ${employee.skill_expiry || '-'}
+                </td>
+
+                <td class="px-3 py-2">
+                    <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${statusClass}">
+                        ${status}
+                    </span>
+                </td>
+
+            </tr>
+        `;
+    }).join('');
+
+    tbody.querySelectorAll('.skill-row').forEach(row => {
+        row.addEventListener('click', function () {
+            const employeeId = this.dataset.employeeId;
+
+            if (employeeId) {
+                window.location.href = `/employee/${employeeId}`;
+            }
+        });
+    });
 }
 
 function toggleMainEmployeeEditMode(isEditing) {
@@ -223,11 +450,11 @@ function toggleMainEmployeeEditMode(isEditing) {
         saveBtn.classList.add("hidden");
         cancelBtn.classList.add("hidden");
         addEmployeeContainer.classList.add("hidden");
-        optionsHeader.classList.add("hidden");
+        optionsHeader.classList.remove("hidden");
     }
 
     renderMainEmployeeTable(isEditing);
-   
+
 }
 
 function saveMainEmployeeChanges() {
@@ -237,7 +464,7 @@ function saveMainEmployeeChanges() {
     tableRows.forEach((row) => {
         const inputs = row.querySelectorAll("input[data-field]");
 
-        if (inputs.length !== 4) return;
+        if (inputs.length !== 5) return;
 
         const employeeId = row.dataset.id ? parseInt(row.dataset.id, 10) : null;
         const employeeData = {
@@ -246,6 +473,7 @@ function saveMainEmployeeChanges() {
             nipp: inputs[1].value,
             position: inputs[2].value,
             unit: inputs[3].value,
+            grade: inputs[4].value,
         };
 
         if (employeeId) {
@@ -257,7 +485,8 @@ function saveMainEmployeeChanges() {
                     oldEmployee.name !== employeeData.name ||
                     oldEmployee.nipp !== employeeData.nipp ||
                     oldEmployee.position !== employeeData.position ||
-                    oldEmployee.unit !== employeeData.unit;
+                    oldEmployee.unit !== employeeData.unit ||
+                    (oldEmployee.grade || '') !== employeeData.grade;
 
                 if (hasChanges) {
                     newEmployees.push(employeeData);
@@ -281,10 +510,10 @@ function addEmptyEmployeeRow() {
     const tableBody = document.getElementById("employee-table-body");
     const newRow = document.createElement("tr");
     newRow.innerHTML = `
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm" placeholder="Nama" data-field="name"></td>
+        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><span class="text-gray-400">-</span></td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm" placeholder="Nama" data-field="name"></td>
         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm" placeholder="NIPP" data-field="nipp"></td>
         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm" placeholder="Jabatan" data-field="position"></td>
-        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm" placeholder="Unit" data-field="unit"></td>
+        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm" placeholder="Unit" data-field="unit"></td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><input type="text" class="w-full rounded-md border-gray-300 shadow-sm" placeholder="Grade" data-field="grade"></td>
         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
             <button class="text-red-500 hover:text-red-700 font-semibold ml-2" onclick="this.closest('tr').remove()">Hapus</button>
         </td>
@@ -819,9 +1048,654 @@ if (jamkerjaSaveBtn) jamkerjaSaveBtn.addEventListener('click', saveJamKerjaChang
 if (jamkerjaCancelBtn) jamkerjaCancelBtn.addEventListener('click', () => toggleJamKerjaEditMode(false));
 if (addJamkerjaRowBtn) addJamkerjaRowBtn.addEventListener('click', addJamKerjaRow);
 
-$(document).ready(function() {
-    loadPositions();
+function addCertificationRow() {
+
+    const tbody = document.getElementById('certification-table-body');
+
+    if (!tbody) return;
+
+    // Cegah lebih dari satu baris tambah sekaligus
+    if (document.getElementById('new-certification-row')) {
+        return;
+    }
+
+    const row = document.createElement('tr');
+
+    row.id = 'new-certification-row';
+
+    row.className = 'bg-blue-50';
+
+    row.innerHTML = `
+        <td class="px-3 py-2">
+            <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs text-gray-500">
+                -
+            </div>
+        </td>
+
+        <td class="px-3 py-2">
+            <select
+                id="new-certification-employee"
+                class="w-full min-w-[130px] border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none">
+
+                <option value="">
+                    Pilih Pegawai
+                </option>
+
+                ${employees.map(employee => `
+                    <option value="${employee.id}">
+                        ${employee.name} - ${employee.nipp}
+                    </option>
+                `).join('')}
+
+            </select>
+        </td>
+
+        <td class="px-3 py-2">
+            <input
+                type="text"
+                id="new-certification-type"
+                placeholder="Jenis"
+                class="w-full min-w-[100px] border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none">
+        </td>
+
+        <td class="px-3 py-2">
+            <input
+                type="text"
+                id="new-certification-number"
+                placeholder="Nomor"
+                class="w-full min-w-[110px] border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none">
+        </td>
+
+        <td class="px-3 py-2">
+            <input
+                type="date"
+                id="new-certification-expiry"
+                class="w-full min-w-[120px] border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none">
+        </td>
+
+        
+
+        <td class="px-3 py-2">
+            <div class="flex items-center gap-1">
+
+                <button
+                    type="button"
+                    id="save-new-certification"
+                    class="px-2.5 py-1.5 rounded-full bg-green-500 text-white text-[10px] font-medium hover:bg-green-600">
+                    Simpan
+                </button>
+
+                <button
+                    type="button"
+                    id="cancel-new-certification"
+                    class="px-2.5 py-1.5 rounded-full bg-gray-400 text-white text-[10px] font-medium hover:bg-gray-500">
+                    Batal
+                </button>
+
+            </div>
+        </td>
+    `;
+
+    tbody.prepend(row);
+
+    setupCertificationImagePreview();
+
+    document
+        .getElementById('save-new-certification')
+        ?.addEventListener('click', saveNewCertification);
+
+    document
+        .getElementById('cancel-new-certification')
+        ?.addEventListener('click', () => {
+            row.remove();
+        });
+}
+
+function addSkillRow() {
+    const tbody = document.getElementById('skill-table-body');
+
+    if (!tbody) return;
+
+    // Cegah lebih dari satu baris tambah
+    if (document.getElementById('new-skill-row')) {
+        return;
+    }
+
+    const row = document.createElement('tr');
+
+    row.id = 'new-skill-row';
+    row.className = 'bg-blue-50';
+
+    row.innerHTML = `
+        <td class="px-3 py-2">
+            <div class="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs text-gray-500">
+                -
+            </div>
+        </td>
+
+        <td class="px-3 py-2">
+            <select
+                id="new-skill-employee"
+                class="w-full min-w-[130px] border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none">
+
+                <option value="">
+                    Pilih Pegawai
+                </option>
+
+                ${employees.map(employee => `
+                    <option value="${employee.id}">
+                        ${employee.name} - ${employee.nipp}
+                    </option>
+                `).join('')}
+
+            </select>
+        </td>
+
+        <td class="px-3 py-2">
+            <input
+                type="text"
+                id="new-skill-type"
+                placeholder="Jenis"
+                class="w-full min-w-[100px] border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none">
+        </td>
+
+        <td class="px-3 py-2">
+            <input
+                type="text"
+                id="new-skill-number"
+                placeholder="Nomor"
+                class="w-full min-w-[110px] border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none">
+        </td>
+
+        <td class="px-3 py-2">
+            <input
+                type="date"
+                id="new-skill-expiry"
+                class="w-full min-w-[120px] border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none">
+        </td>
+
+        <td class="px-3 py-2">
+            <div class="flex items-center gap-1">
+
+                <button
+                    type="button"
+                    id="save-new-skill"
+                    class="px-2.5 py-1.5 rounded-full bg-green-500 text-white text-[10px] font-medium hover:bg-green-600">
+                    Simpan
+                </button>
+
+                <button
+                    type="button"
+                    id="cancel-new-skill"
+                    class="px-2.5 py-1.5 rounded-full bg-gray-400 text-white text-[10px] font-medium hover:bg-gray-500">
+                    Batal
+                </button>
+
+            </div>
+        </td>
+    `;
+
+    tbody.prepend(row);
+
+    document
+        .getElementById('save-new-skill')
+        ?.addEventListener('click', saveNewSkill);
+
+    document
+        .getElementById('cancel-new-skill')
+        ?.addEventListener('click', () => {
+            row.remove();
+        });
+}
+
+async function saveNewSkill() {
+    const employeeId =
+        document.getElementById('new-skill-employee')?.value;
+
+    const skillType =
+        document.getElementById('new-skill-type')?.value.trim();
+
+    const skillNumber =
+        document.getElementById('new-skill-number')?.value.trim();
+
+    const skillExpiry =
+        document.getElementById('new-skill-expiry')?.value;
+
+
+    // ==============================
+    // CARI DATA PEGAWAI
+    // ==============================
+
+    const employee = employees.find(
+        item => String(item.id) === String(employeeId)
+    );
+
+    if (!employee) {
+        alert('Data pegawai tidak ditemukan.');
+        return;
+    }
+
+
+    // ==============================
+    // VALIDASI
+    // ==============================
+
+    if (!employeeId) {
+        alert('Silakan pilih pegawai terlebih dahulu.');
+        return;
+    }
+
+    if (!skillType) {
+        alert('Jenis kecakapan wajib diisi.');
+        return;
+    }
+
+    if (!skillNumber) {
+        alert('Nomor kecakapan wajib diisi.');
+        return;
+    }
+
+    if (!skillExpiry) {
+        alert('Masa berlaku wajib diisi.');
+        return;
+    }
+
+
+    // ==============================
+    // FORM DATA
+    // ==============================
+
+    const formData = new FormData();
+
+    formData.append(
+        '_token',
+        document
+            .querySelector('meta[name="csrf-token"]')
+            ?.getAttribute('content')
+    );
+
+    // ID PEGAWAI
+    formData.append('id', employee.id);
+
+    // DATA UTAMA PEGAWAI
+    formData.append('name', employee.name || '');
+
+    formData.append('nipp', employee.nipp || '');
+
+    formData.append('position', employee.position || '');
+
+    formData.append('unit', employee.unit || '');
+
+    formData.append('station_id', employee.station_id || '');
+
+    formData.append('grade', employee.grade || '');
+
+
+    // DATA KECAKAPAN
+    formData.append('skill_type', skillType);
+
+    formData.append('skill_number', skillNumber);
+
+    formData.append('skill_expiry', skillExpiry);
+
+    formData.append('skill_status', 'Aktif');
+
+
+    // ==============================
+    // SIMPAN KE SERVER
+    // ==============================
+
+    try {
+
+        const response = await fetch('/employee/update', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+
+
+        const result = await response.json();
+
+
+        // ==============================
+        // ERROR
+        // ==============================
+
+        if (!response.ok) {
+
+            console.error(
+                'Validation error:',
+                result.errors
+            );
+
+            throw new Error(
+                result.message ||
+                'Gagal menyimpan data kecakapan.'
+            );
+        }
+
+
+        // ==============================
+        // UPDATE DATA LOKAL
+        // ==============================
+
+        employee.skill_type = skillType;
+
+        employee.skill_number = skillNumber;
+
+        employee.skill_expiry = skillExpiry;
+
+        employee.skill_status = 'Aktif';
+
+
+        // ==============================
+        // REFRESH TABEL
+        // ==============================
+
+        renderSkillTable();
+
+
+        alert(
+            'Data kecakapan berhasil disimpan.'
+        );
+
+
+    } catch (error) {
+
+        console.error(
+            'Gagal menyimpan kecakapan:',
+            error
+        );
+
+        alert(
+            error.message ||
+            'Terjadi kesalahan saat menyimpan data kecakapan.'
+        );
+    }
+}
+
+function setupCertificationImagePreview() {
+    const input = document.getElementById('new-certification-image');
+    const previewContainer = document.getElementById('new-certification-image-preview');
+    const previewImage = document.getElementById('new-certification-preview-img');
+    const fileName = document.getElementById('new-certification-image-name');
+
+    if (!input) return;
+
+    input.addEventListener('change', function () {
+
+        const file = this.files[0];
+
+        if (!file) {
+            previewContainer?.classList.add('hidden');
+
+            if (fileName) {
+                fileName.textContent = '';
+            }
+
+            return;
+        }
+
+        // Validasi tipe file
+        if (!file.type.startsWith('image/')) {
+            alert('File harus berupa gambar.');
+
+            this.value = '';
+
+            previewContainer?.classList.add('hidden');
+
+            return;
+        }
+
+        // Maksimal 2 MB
+        if (file.size > 2 * 1024 * 1024) {
+            alert('Ukuran gambar maksimal 2 MB.');
+
+            this.value = '';
+
+            previewContainer?.classList.add('hidden');
+
+            return;
+        }
+
+        if (fileName) {
+            fileName.textContent = file.name;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = function (event) {
+
+            if (previewImage) {
+                previewImage.src = event.target.result;
+            }
+
+            previewContainer?.classList.remove('hidden');
+        };
+
+        reader.readAsDataURL(file);
+    });
+}
+
+async function saveNewCertification() {
+    const employeeId =
+        document.getElementById('new-certification-employee')?.value;
+
+    const certType =
+        document.getElementById('new-certification-type')?.value.trim();
+
+    const certNumber =
+        document.getElementById('new-certification-number')?.value.trim();
+
+    const certExpiry =
+        document.getElementById('new-certification-expiry')?.value;
+
+    const imageInput =
+        document.getElementById('new-certification-image');
+
+    const imageFile =
+        imageInput?.files?.[0];
+
+
+    // ==============================
+    // CARI DATA PEGAWAI
+    // ==============================
+
+    const employee = employees.find(
+        item => String(item.id) === String(employeeId)
+    );
+
+    if (!employee) {
+        alert('Data pegawai tidak ditemukan.');
+        return;
+    }
+
+
+    // ==============================
+    // VALIDASI
+    // ==============================
+
+    if (!employeeId) {
+        alert('Silakan pilih pegawai terlebih dahulu.');
+        return;
+    }
+
+    if (!certType) {
+        alert('Jenis sertifikasi wajib diisi.');
+        return;
+    }
+
+    if (!certNumber) {
+        alert('Nomor sertifikasi wajib diisi.');
+        return;
+    }
+
+    if (!certExpiry) {
+        alert('Masa berlaku wajib diisi.');
+        return;
+    }
+
+    if (!imageFile) {
+        alert('Silakan upload gambar sertifikasi.');
+        return;
+    }
+
+
+    // ==============================
+    // VALIDASI GAMBAR
+    // ==============================
+
+    if (!imageFile.type.startsWith('image/')) {
+        alert('File yang dipilih harus berupa gambar.');
+        return;
+    }
+
+    if (imageFile.size > 2 * 1024 * 1024) {
+        alert('Ukuran gambar maksimal 2 MB.');
+        return;
+    }
+
+
+    // ==============================
+    // FORM DATA
+    // ==============================
+
+    const formData = new FormData();
+
+    formData.append(
+        '_token',
+        document
+            .querySelector('meta[name="csrf-token"]')
+            ?.getAttribute('content')
+    );
+
+    // ID PEGAWAI
+    formData.append('id', employee.id);
+
+    // DATA UTAMA PEGAWAI
+    formData.append('name', employee.name || '');
+
+    formData.append('nipp', employee.nipp || '');
+
+    formData.append('position', employee.position || '');
+
+    formData.append('unit', employee.unit || '');
+
+    formData.append('station_id', employee.station_id || '');
+
+    formData.append('grade', employee.grade || '');
+
+
+    // DATA SERTIFIKASI
+    formData.append('cert_type', certType);
+
+    formData.append('cert_number', certNumber);
+
+    formData.append('cert_expiry', certExpiry);
+
+    formData.append('cert_status', 'Aktif');
+
+    formData.append('cert_image', imageFile);
+
+
+    // ==============================
+    // KIRIM KE SERVER
+    // ==============================
+
+    try {
+
+        const response = await fetch('/employee/update', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+
+
+        const result = await response.json();
+
+
+        // ==============================
+        // ERROR DARI SERVER
+        // ==============================
+
+        if (!response.ok) {
+
+            console.error(
+                'Validation error:',
+                result.errors
+            );
+
+            throw new Error(
+                result.message ||
+                'Gagal menyimpan data sertifikasi.'
+            );
+        }
+
+
+        // ==============================
+        // UPDATE DATA LOKAL
+        // ==============================
+
+        employee.cert_type = certType;
+
+        employee.cert_number = certNumber;
+
+        employee.cert_expiry = certExpiry;
+
+        employee.cert_status = 'Aktif';
+
+        if (result.employee?.cert_image) {
+            employee.cert_image =
+                result.employee.cert_image;
+        }
+
+
+        // ==============================
+        // REFRESH TABEL
+        // ==============================
+
+        renderCertificationTable();
+
+
+        alert(
+            'Data sertifikasi berhasil disimpan.'
+        );
+
+
+    } catch (error) {
+
+        console.error(
+            'Gagal menyimpan sertifikasi:',
+            error
+        );
+
+        alert(
+            error.message ||
+            'Terjadi kesalahan saat menyimpan data sertifikasi.'
+        );
+    }
+}
+
+
+$(document).ready(function () {
     loadEmployees(1);
     loadEmployeeRequirements();
     loadDutyShifts();
+
+    document
+        .getElementById('add-certification-btn')
+        ?.addEventListener('click', addCertificationRow);
+
+    document
+        .getElementById('add-skill-btn')
+        ?.addEventListener('click', addSkillRow);
 });
+
+
+
+
+

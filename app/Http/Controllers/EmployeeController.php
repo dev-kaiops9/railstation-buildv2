@@ -7,6 +7,7 @@ use App\Models\Station;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 
 class EmployeeController extends Controller
 {
@@ -59,6 +60,7 @@ class EmployeeController extends Controller
             'employees.*.nipp' => 'required',
             'employees.*.position' => 'required',
             'employees.*.unit' => 'required',
+            'employees.*.grade' => 'nullable|string',
         ]);
 
         if (!$this->checkUserAccess()) {
@@ -82,6 +84,7 @@ class EmployeeController extends Controller
             'nipp' => 'required',
             'position' => 'required',
             'unit' => 'required',
+            'grade' => 'nullable|string',
         ]);
 
         if (!$this->checkUserAccess()) {
@@ -93,6 +96,7 @@ class EmployeeController extends Controller
         // FOTO PEGAWAI
         if ($request->hasFile('photo_url')) {
             $path = $request->file('photo_url')->store('employees', 'public');
+            $this->mirrorPublicImage($path);
             $request->merge(['photo_url' => $path]);
         } elseif ($request->has('photo_url') && strpos($request->photo_url, 'data:image') === 0) {
             $photoName = $this->storeImage($request->photo_url);
@@ -102,6 +106,7 @@ class EmployeeController extends Controller
         // SERTIFIKASI
         if ($request->hasFile('cert_image')) {
             $path = $request->file('cert_image')->store('employees', 'public');
+            $this->mirrorPublicImage($path);
             $request->merge(['cert_image' => $path]);
         } elseif ($request->has('cert_image') && strpos($request->cert_image, 'data:image') === 0) {
             $certName = $this->storeImage($request->cert_image);
@@ -111,6 +116,7 @@ class EmployeeController extends Controller
         // SKILL
         if ($request->hasFile('skill_image')) {
             $path = $request->file('skill_image')->store('employees', 'public');
+            $this->mirrorPublicImage($path);
             $request->merge(['skill_image' => $path]);
         } elseif ($request->has('skill_image') && strpos($request->skill_image, 'data:image') === 0) {
             $skillName = $this->storeImage($request->skill_image);
@@ -204,7 +210,16 @@ class EmployeeController extends Controller
         $imageName = 'photo_' . time() . '_' . uniqid() . '.png';
 
         Storage::disk('public')->put('employees/' . $imageName, base64_decode($image));
+        $this->mirrorPublicImage('employees/' . $imageName);
 
         return $imageName;
+    }
+
+    private function mirrorPublicImage(string $path): void
+    {
+        $source = Storage::disk('public')->path($path);
+        $destination = public_path('storage/' . $path);
+        File::ensureDirectoryExists(dirname($destination));
+        File::copy($source, $destination);
     }
 }

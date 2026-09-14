@@ -16,14 +16,16 @@
     <div class="app-shell">
         @include('layouts.sidebar')
         @php
-            $pageTitles = ['dashboard' => 'Dashboard', 'profile' => 'Profil Stasiun', 'employee' => 'Data Pegawai', 'train' => 'Data Perka', 'ibpr' => 'IBPR', 'guard-form' => 'Penjagaan Bentuk', 'krsm' => 'Penggunaan KR & SM', 'operational-disruption' => 'Gangguan Operasional', 'railibrary' => 'RaiLibrary'];
+            $pageTitles = ['dashboard' => 'Dashboard', 'profile' => 'Profil Stasiun', 'employee' => 'Data Pegawai & Kepegawaian', 'train' => 'Data Perka', 'ibpr' => 'Administrasi & Keselamatan', 'guard-form' => 'Administrasi & Keselamatan', 'krsm' => 'Administrasi & Keselamatan', 'operational-disruption' => 'Administrasi & Keselamatan', 'railibrary' => 'RailLibrary'];
+            $pageSubtitles = ['dashboard' => 'Selamat datang kembali, '.(auth()->user()->name ?? ''), 'profile' => 'Identitas, fasilitas, dan jadwal KA yang berhenti di stasiun.', 'employee' => 'Pegawai, jadwal dinas, dan kompetensi.', 'train' => 'Perjalanan kereta api dan spesifikasi jalur/emplasemen.', 'ibpr' => 'IBPR, formulir administrasi, penggunaan KR/SI, dan gangguan operasional.', 'guard-form' => 'IBPR, formulir administrasi, penggunaan KR/SI, dan gangguan operasional.', 'krsm' => 'IBPR, formulir administrasi, penggunaan KR/SI, dan gangguan operasional.', 'operational-disruption' => 'IBPR, formulir administrasi, penggunaan KR/SI, dan gangguan operasional.', 'railibrary' => 'Dokumen referensi operasional dan manajemen akses pengguna.'];
             $currentTitle = $pageTitles[request()->route()?->getName()] ?? 'RailStatiON';
+            $currentSubtitle = $pageSubtitles[request()->route()?->getName()] ?? 'Sistem informasi operasional stasiun';
         @endphp
         <main class="main-content" id="main-content">
             <header class="topbar">
                 <div>
                     <h1>@yield('page-title', $currentTitle)</h1>
-                    <p class="sub">{{ session('station') ? 'Stasiun '.session('station') : 'Sistem informasi operasional stasiun' }}</p>
+                    <p class="sub">{{ $currentSubtitle }}</p>
                 </div>
                 <div class="user-chip">
                     <div class="avatar-circle">{{ strtoupper(substr(auth()->user()->name ?? 'U', 0, 1)) }}</div>

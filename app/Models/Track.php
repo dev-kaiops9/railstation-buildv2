@@ -18,4 +18,9 @@ class Track extends Model
         'GK',
         'remarks'
     ];
+
+    public function trainSchedules()
+    {
+        return $this->hasMany(TrainSchedule::class);
+    }
 }

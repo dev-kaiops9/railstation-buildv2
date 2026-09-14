@@ -46,6 +46,11 @@ class Station extends Model
         return $this->hasMany(TrainTracks::class);
     }
 
+    public function trainSchedules()
+    {
+        return $this->hasMany(TrainSchedule::class);
+    }
+
     public function guardForms()
     {
         return $this->hasMany(GuardForm::class);
