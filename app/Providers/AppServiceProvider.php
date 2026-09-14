@@ -22,14 +22,16 @@ class AppServiceProvider extends ServiceProvider
      * Bootstrap any application services.
      */
     public function boot(): void
-    {
-        config(['app.locale' => 'id']);
-	    Carbon::setLocale('id');
+{
+    config(['app.locale' => 'id']);
+    Carbon::setLocale('id');
 
-        if (Schema::hasTable('stations')) {
-            $stationData = Station::pluck('name', 'id');
+    $stationData = collect();
 
-            View::share('stationData', $stationData);
-        }
+    if (Schema::hasTable('stations')) {
+        $stationData = Station::pluck('name', 'id');
     }
+
+    View::share('stationData', $stationData);
+}
 }
