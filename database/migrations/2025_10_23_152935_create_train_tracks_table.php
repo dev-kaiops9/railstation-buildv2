@@ -9,31 +9,14 @@ return new class extends Migration
     /**
      * Run the migrations.
      */
-        public function up(): void
+    public function up(): void
     {
-        Schema::create('train_schedules', function (Blueprint $table) {
+        Schema::create('train_tracks', function (Blueprint $table) {
             $table->id();
-
-            $table->foreignId('train_id')
-                ->constrained('trains')
-                ->onDelete('cascade');
-
-            $table->foreignId('station_id')
-                ->constrained('stations')
-                ->onDelete('cascade');
-
-            $table->time('arrival_time')->nullable();
-
-            $table->time('departure_time')->nullable();
-
-            $table->foreignId('track_id')
-                ->nullable()
-                ->constrained('tracks')
-                ->onDelete('set null');
-
+            $table->foreignId('station_id')->constrained('stations')->onDelete('cascade');
+            $table->foreignId('train_id')->constrained('trains')->onDelete('cascade');
+            $table->foreignId('track_id')->constrained('tracks')->onDelete('cascade');
             $table->timestamps();
-
-            $table->unique(['train_id', 'station_id']);
         });
     }
 
