@@ -32,6 +32,9 @@ jobs:
                   node-version: "20"
                   cache: npm
 
+            - name: Prepare SQLite Database
+              run: touch database/database.sqlite
+
             - name: Install Composer dependencies
               run: composer install --no-interaction --prefer-dist --no-progress
 
